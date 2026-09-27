@@ -82,7 +82,8 @@ def ingest_state(state: IoTStateIn) -> dict:
     return {"status": "ok"}
 
 
-@app.post("/api/iot/confirm")
+@app.post("/api/iot")
+@app.post("/api/iot/")
 async def confirm_iot_destination(request: Request) -> dict:
     # AWS IoT の HTTP destination 確認時だけ呼ばれる。確認操作は運用者が CLI で行う。
     body = await request.json()

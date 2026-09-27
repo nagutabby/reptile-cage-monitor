@@ -1,5 +1,7 @@
 """APIエンドポイントの認証・呼び出しの回帰テスト(D1/LINEへは実際には接続しない)。"""
 
+import logging
+
 from fastapi.testclient import TestClient
 
 from app import alerts, config
@@ -7,6 +9,18 @@ from app import d1 as d1_module
 from app.main import MAX_LOOKBACK_MINUTES, app
 
 client = TestClient(app)
+
+
+def test_iot_destination_confirmation_accepts_base_url_with_slash(caplog):
+    with caplog.at_level(logging.INFO, logger="reptile_monitor"):
+        response = client.post(
+            "/api/iot/?confirmationToken=example-token",
+            json={"messageType": "DestinationConfirmation", "confirmationToken": "example-token"},
+            follow_redirects=False,
+        )
+
+    assert response.status_code == 200
+    assert "confirmationToken=example-token" in caplog.text
 
 
 def test_list_readings_requires_api_key_header():
