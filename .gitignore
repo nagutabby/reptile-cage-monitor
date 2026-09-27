@@ -1,0 +1,7 @@
+node_modules/
+cdk.out/
+.local/
+.env
+.venv/
+__pycache__/
+devices/
