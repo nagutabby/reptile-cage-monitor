@@ -7,6 +7,8 @@ from aws_cdk import aws_apigatewayv2 as apigw
 from aws_cdk import aws_apigatewayv2_authorizers as authorizers
 from aws_cdk import aws_apigatewayv2_integrations as integrations
 from aws_cdk import aws_cognito as cognito
+from aws_cdk import aws_events as events
+from aws_cdk import aws_events_targets as targets
 from aws_cdk import aws_iam as iam
 from aws_cdk import aws_iot as iot
 from aws_cdk import aws_lambda as lambda_
@@ -16,6 +18,7 @@ from constructs import Construct
 
 TELEMETRY_TOPIC = "reptile/cage/telemetry"
 STATE_TOPIC = "reptile/cage/state"
+SHADOW_TOPIC = "$aws/things/reptile-controller/shadow"
 
 
 class ReptileIotStack(Stack):
@@ -114,8 +117,13 @@ class ReptileIotStack(Stack):
         )
         web_permissions = [
             (["iot:Connect"], [topic_arn("client", "reptile-web-*")]),
-            (["iot:Subscribe"], [topic_arn("topicfilter", TELEMETRY_TOPIC), topic_arn("topicfilter", STATE_TOPIC)]),
-            (["iot:Receive"], [topic_arn("topic", TELEMETRY_TOPIC), topic_arn("topic", STATE_TOPIC)]),
+            (["iot:Subscribe"], [topic_arn("topicfilter", name) for name in (
+                TELEMETRY_TOPIC, STATE_TOPIC, f"{SHADOW_TOPIC}/get/accepted",
+                f"{SHADOW_TOPIC}/get/rejected", f"{SHADOW_TOPIC}/update/documents")]),
+            (["iot:Receive"], [topic_arn("topic", name) for name in (
+                TELEMETRY_TOPIC, STATE_TOPIC, f"{SHADOW_TOPIC}/get/accepted",
+                f"{SHADOW_TOPIC}/get/rejected", f"{SHADOW_TOPIC}/update/documents")]),
+            (["iot:Publish"], [topic_arn("topic", f"{SHADOW_TOPIC}/get")]),
         ]
         for actions, resources in web_permissions:
             web_role.add_to_policy(iam.PolicyStatement(actions=actions, resources=resources))
@@ -185,6 +193,8 @@ class ReptileIotStack(Stack):
                 {"Effect": "Allow", "Action": "iot:Receive", "Resource": topic_arn("topic", TELEMETRY_TOPIC)},
                 {"Effect": "Allow", "Action": ["iot:Publish", "iot:RetainPublish"],
                  "Resource": topic_arn("topic", STATE_TOPIC)},
+                {"Effect": "Allow", "Action": "iot:Publish",
+                 "Resource": topic_arn("topic", f"{SHADOW_TOPIC}/update")},
             ],
         })
         for name, policy in (("Sensor", sensor_policy), ("Controller", controller_policy)):
@@ -209,6 +219,22 @@ class ReptileIotStack(Stack):
             ),
             removal_policy=RemovalPolicy.RETAIN,
         )
+        sync_checker = lambda_.Function(
+            self, "ShadowSyncChecker",
+            runtime=lambda_.Runtime.PYTHON_3_12,
+            handler="sync_check.handler",
+            code=lambda_.Code.from_asset(str(Path(__file__).parent / "lambda")),
+            timeout=Duration.seconds(30),
+            environment={
+                "BACKEND_URL": f"{backend}/api/iot/check-sync",
+                "INGEST_SECRET_ARN": ingest_secret.secret_arn,
+            },
+        )
+        ingest_secret.grant_read(sync_checker)
+        events.Rule(
+            self, "ShadowSyncSchedule", schedule=events.Schedule.rate(Duration.minutes(5)),
+            targets=[targets.LambdaFunction(sync_checker)],
+        )
         secret_role = iam.Role(self, "IoTSecretReader", assumed_by=iam.ServicePrincipal("iot.amazonaws.com"))
         ingest_secret.grant_read(secret_role)
         failures = s3.Bucket(
@@ -231,6 +257,7 @@ class ReptileIotStack(Stack):
         for name, topic, endpoint in (
             ("Telemetry", TELEMETRY_TOPIC, "telemetry"),
             ("State", STATE_TOPIC, "state"),
+            ("Shadow", f"{SHADOW_TOPIC}/update/documents", "shadow"),
         ):
             iot.CfnTopicRule(
                 self, f"{name}Rule",
