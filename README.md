@@ -10,7 +10,7 @@
 
 ## セットアップ
 
-1. 既存の D1 データベースには `npx wrangler d1 execute reptile-monitor --remote --file=migrations/001_mqtt.sql` を実行します。新規 DB には `schema.sql` を使います。
+1. 既存の D1 データベースには `wrangler d1 execute reptile-monitor --remote --file migrations/001_mqtt.sql` と `wrangler d1 execute reptile-monitor --remote --file migrations/002_normalize_timestamps.sql` を順に実行します。新規 DB には `schema.sql` を使います。保存時刻は秒精度の UTC (`+00:00`) で統一します。
 2. Render の `render.yaml` で backend をデプロイし、D1 と LINE の既存設定を維持します。IoT Core の ingest key は CDK が Secrets Manager に作成するため、デプロイ後に取得して Render の `IOT_INGEST_KEY` に設定します。
 3. [reptile-iot-cdk](../reptile-iot-cdk/) を synth・deploy します。IoT HTTP destination の確認もその README に従います。
 4. Streamlit Community Cloud の secrets に `frontend/.streamlit/secrets.toml.example` にある Cognito と IoT session URL の値を設定し、Cognito に閲覧者を登録します。

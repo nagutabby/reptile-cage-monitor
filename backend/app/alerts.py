@@ -9,6 +9,7 @@ from datetime import datetime, timezone
 
 from . import config, d1, line_client
 from .domain import Environment, Humidity, Temperature
+from .time_format import utc_seconds
 
 
 def is_abnormal(environment: Environment) -> bool:
@@ -32,7 +33,7 @@ def _get_alert_state() -> tuple[bool, datetime | None]:
 def _set_alert_state(is_abnormal_now: bool, last_alert_at: datetime | None) -> None:
     d1.query(
         "UPDATE alert_state SET is_abnormal = ?, last_alert_at = ? WHERE id = 1",
-        [int(is_abnormal_now), last_alert_at.isoformat() if last_alert_at else None],
+        [int(is_abnormal_now), utc_seconds(last_alert_at) if last_alert_at else None],
     )
 
 

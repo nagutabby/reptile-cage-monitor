@@ -7,6 +7,7 @@ from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request
 
 from . import alerts, config, d1
 from .schemas import DeviceStateOut, IoTStateIn, IoTTelemetryIn, ReadingIn, ReadingOut
+from .time_format import utc_seconds
 
 logger = logging.getLogger("reptile_monitor")
 
@@ -45,7 +46,7 @@ def healthz() -> dict:
 @app.post("/api/readings", status_code=201, dependencies=[Depends(verify_api_key)])
 def create_reading(reading: ReadingIn) -> dict:
     environment = reading.to_environment()
-    now = datetime.now(timezone.utc).isoformat()
+    now = utc_seconds(datetime.now(timezone.utc))
     d1.query(
         "INSERT INTO readings (temp_c, humidity, is_light_on, is_heater_on, recorded_at) VALUES (?, ?, ?, ?, ?)",
         [environment.temperature.celsius, environment.humidity.percent, reading.is_light_on, reading.is_heater_on, now],
@@ -57,7 +58,7 @@ def create_reading(reading: ReadingIn) -> dict:
 @app.post("/api/iot/telemetry", dependencies=[Depends(verify_iot_key)])
 def ingest_telemetry(reading: IoTTelemetryIn) -> dict:
     environment = reading.to_environment()
-    recorded_at = reading.observed_at.astimezone(timezone.utc).isoformat()
+    recorded_at = utc_seconds(reading.observed_at)
     inserted = d1.query(
         "INSERT INTO readings (event_id, temp_c, humidity, recorded_at) VALUES (?, ?, ?, ?) "
         "ON CONFLICT(event_id) DO NOTHING RETURNING id",
@@ -70,7 +71,7 @@ def ingest_telemetry(reading: IoTTelemetryIn) -> dict:
 
 @app.post("/api/iot/state", dependencies=[Depends(verify_iot_key)])
 def ingest_state(state: IoTStateIn) -> dict:
-    reported_at = state.observed_at.astimezone(timezone.utc).isoformat()
+    reported_at = utc_seconds(state.observed_at)
     d1.query(
         "INSERT INTO device_state (id, is_light_on, is_heater_on, reported_at, event_id) "
         "VALUES (1, ?, ?, ?, ?) "
@@ -94,7 +95,7 @@ async def confirm_iot_destination(request: Request) -> dict:
 
 @app.get("/api/readings", response_model=list[ReadingOut], dependencies=[Depends(verify_api_key)])
 def list_readings(minutes: int = Query(default=360, ge=1, le=MAX_LOOKBACK_MINUTES)) -> list[dict]:
-    cutoff = (datetime.now(timezone.utc) - timedelta(minutes=minutes)).isoformat()
+    cutoff = utc_seconds(datetime.now(timezone.utc) - timedelta(minutes=minutes))
     return d1.query(
         "SELECT id, temp_c, humidity, recorded_at FROM readings WHERE recorded_at >= ? ORDER BY recorded_at ASC",
         [cutoff],

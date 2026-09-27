@@ -163,9 +163,10 @@ def fetch_readings(minutes: int) -> pd.DataFrame:
         return df
     # idはフロントエンドで使わないため表示しない。
     df = df.drop(columns=["id"])
-    # バックエンドはUTCで記録している(datetime.now(timezone.utc))ため、表示はJSTに変換する。
-    # 旧データと MQTT 経由のデータでは小数秒の有無が異なる。
-    df["recorded_at"] = pd.to_datetime(df["recorded_at"], format="ISO8601", utc=True).dt.tz_convert("Asia/Tokyo")
+    # D1 の時刻は秒精度の UTC (+00:00) に統一して保存する。
+    df["recorded_at"] = pd.to_datetime(
+        df["recorded_at"], format="%Y-%m-%dT%H:%M:%S%z", utc=True
+    ).dt.tz_convert("Asia/Tokyo")
     return df.sort_values("recorded_at")
 
 
