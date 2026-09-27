@@ -35,13 +35,13 @@ openssl ecparam -name prime256v1 -genkey -noout -out devices/controller.key
 openssl req -new -key devices/controller.key -subj /CN=reptile-controller -out devices/controller.csr
 ```
 
-`cdk bootstrap` と `cdk deploy` は AWS リソースを作成します。ユーザーからデプロイ指示がある時だけ実行してください。デプロイ時には上記 4 つの context に加え、`--parameters SensorCsr="$(cat devices/sensor.csr)"` と `--parameters ControllerCsr="$(cat devices/controller.csr)"` を指定します。初回は CDK bootstrap が必要です。
+`cdk bootstrap` と `cdk deploy` は AWS リソースを作成します。ユーザーからデプロイ指示がある時だけ実行してください。デプロイ時には上記 4 つの context に加え、`--parameters SensorCsr="$(cat devices/sensor.csr)"`、`--parameters ControllerCsr="$(cat devices/controller.csr)"`、`--parameters ViewerEmail=閲覧者のメールアドレス` を指定します。初回は CDK bootstrap が必要です。閲覧者のメールアドレスは Git に保存せず、Cognito の招待メールから初回ログインします。招待に含まれる仮パスワードの有効期限は 7 日です。
 
 デプロイ後は stack outputs の証明書 ARN に対応する certificate ID で `aws iot describe-certificate` を呼び、各 PEM を取得します。Amazon Root CA 1、秘密鍵、証明書、IoT endpoint を [AtomS3 側](../atoms3-reptile-cage/) の機器別設定に格納します。
 
 Secrets Manager の `IngestSecretArn` にある `key` を Render の `IOT_INGEST_KEY` に設定します。IoT HTTP destination の確認トークンは FastAPI の `/api/iot` が Render のログに出力するので、確認後に `aws iot confirm-topic-rule-destination` と `aws iot update-topic-rule-destination --status ENABLED` を実行します。Render への HTTPS 接続とルールの送信結果を確認してください。
 
-Cognito app client の secret、User Pool ID、`SessionUrl` を [Streamlit 側](../reptile-monitor/frontend/.streamlit/secrets.toml.example) に設定し、閲覧者アカウントを作成します。これらの実値や機器秘密鍵を Git に push しないでください。
+Cognito app client の secret、User Pool ID、`SessionUrl` を [Streamlit 側](../reptile-monitor/frontend/.streamlit/secrets.toml.example) に設定します。閲覧者アカウントは CDK が作成します。これらの実値や機器秘密鍵を Git に push しないでください。
 
 ## 月額コストの事前見積もり
 

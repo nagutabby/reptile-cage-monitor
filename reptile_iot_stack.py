@@ -54,6 +54,19 @@ class ReptileIotStack(Stack):
             deletion_protection=True,
             removal_policy=RemovalPolicy.RETAIN,
         )
+        viewer_email = CfnParameter(
+            self, "ViewerEmail", type="String", description="Email address for the invited dashboard viewer"
+        )
+        cognito.CfnUserPoolUser(
+            self, "DashboardViewer",
+            user_pool_id=user_pool.user_pool_id,
+            username=viewer_email.value_as_string,
+            desired_delivery_mediums=["EMAIL"],
+            user_attributes=[
+                cognito.CfnUserPoolUser.AttributeTypeProperty(name="email", value=viewer_email.value_as_string),
+                cognito.CfnUserPoolUser.AttributeTypeProperty(name="email_verified", value="true"),
+            ],
+        )
         user_client = user_pool.add_client(
             "StreamlitClient",
             generate_secret=True,
