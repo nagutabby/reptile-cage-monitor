@@ -241,7 +241,7 @@ def test_shadow_documents_keep_latest_version_and_check_sync(monkeypatch):
     response = client.post("/api/iot/shadow", headers={"X-IoT-Key": "test-iot-key"}, json=document)
     assert response.status_code == 200
     assert "excluded.version > shadow_state.version" in queries[0][0]
-    assert queries[0][1][:5] == [4, True, False, False, False]
+    assert queries[0][1][:5] == [4, 1, 0, 0, 0]
     assert checked == [True]
     assert client.post("/api/iot/check-sync", headers={"X-IoT-Key": "test-iot-key"}).status_code == 200
     assert checked == [True, True]

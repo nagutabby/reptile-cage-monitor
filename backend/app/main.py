@@ -105,7 +105,7 @@ def ingest_shadow(document: dict) -> dict:
         "version = excluded.version, desired_light = excluded.desired_light, desired_heater = excluded.desired_heater, "
         "reported_light = excluded.reported_light, reported_heater = excluded.reported_heater, "
         "updated_at = excluded.updated_at WHERE excluded.version > shadow_state.version",
-        [version, *values, updated_at],
+        [version, *(None if value is None else int(value) for value in values), updated_at],
     )
     sync_alerts.evaluate_and_notify()
     return {"status": "ok"}

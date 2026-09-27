@@ -22,9 +22,14 @@ def _problems(row: dict, now: datetime) -> list[str]:
     ):
         desired = row[desired_key]
         reported = row[reported_key]
-        if desired is not None and (reported is None or bool(desired) != bool(reported)):
-            actual = "不明" if reported is None else ("ON" if reported else "OFF")
-            problems.append(f"{name}: desired={'ON' if desired else 'OFF'} / reported={actual}")
+        if desired is None:
+            problems.append(f"{name}: desiredが未設定")
+            continue
+        desired_on = desired in (1, "1", "true", True)
+        reported_on = reported in (1, "1", "true", True)
+        if reported is None or desired_on != reported_on:
+            actual = "不明" if reported is None else ("ON" if reported_on else "OFF")
+            problems.append(f"{name}: desired={'ON' if desired_on else 'OFF'} / reported={actual}")
     return problems
 
 

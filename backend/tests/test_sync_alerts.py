@@ -65,3 +65,13 @@ def test_stale_shadow_renotifies_hourly(monkeypatch):
     sync_alerts.evaluate_and_notify(now + timedelta(minutes=61))
     assert len(sent) == 2
     assert "状態報告が3分以上ありません" in sent[0]
+
+
+def test_legacy_d1_boolean_strings_are_compared_correctly():
+    now = datetime(2026, 9, 28, 0, 0, tzinfo=timezone.utc)
+    row = {
+        "desired_light": "false", "reported_light": "true",
+        "desired_heater": "false", "reported_heater": "false",
+        "updated_at": now.isoformat(),
+    }
+    assert sync_alerts._problems(row, now) == ["ライト: desired=OFF / reported=ON"]
