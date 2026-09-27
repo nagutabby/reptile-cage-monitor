@@ -2,7 +2,7 @@
 
 ヒョウモントカゲモドキのケージ用 AWS リソースを管理する、独立した **Python AWS CDK** リポジトリです。CDK コードを push するだけでは AWS リソースは作成されません。デプロイは運用者が明示的に行います。
 
-東京リージョンに、M5Stack 2 台の IoT Thing・証明書・個別 MQTT ポリシー、Cognito 閲覧者ログイン、WebSocket 用の一時認証情報 API、IoT Core から既存 FastAPI への HTTP ルール、ingest key とエラー保存先を定義します。Web 閲覧者には telemetry/state の受信権限だけを与えます。
+東京リージョンに、M5Stack 2 台の IoT Thing・証明書・個別 MQTT ポリシー、Cognito 閲覧者ログインと未ログイン閲覧用 Identity Pool ロール、WebSocket 用の一時認証情報 API、IoT Core から既存 FastAPI への HTTP ルール、ingest key とエラー保存先を定義します。Web 閲覧者には telemetry/state の受信権限だけを与えます。
 
 ## ローカルでの確認
 
@@ -41,11 +41,11 @@ openssl req -new -key devices/controller.key -subj /CN=reptile-controller -out d
 
 Secrets Manager の `IngestSecretArn` にある `key` を Render の `IOT_INGEST_KEY` に設定します。IoT HTTP destination の確認トークンは FastAPI の `/api/iot` が Render のログに出力するので、確認後に `aws iot confirm-topic-rule-destination` と `aws iot update-topic-rule-destination --status ENABLED` を実行します。Render への HTTPS 接続とルールの送信結果を確認してください。
 
-Cognito app client の secret、User Pool ID、`SessionUrl` を [Streamlit 側](../reptile-monitor/frontend/.streamlit/secrets.toml.example) に設定します。閲覧者アカウントは CDK が作成します。これらの実値や機器秘密鍵を Git に push しないでください。
+Cognito app client の secret と User Pool ID を [Streamlit 側](../reptile-monitor/frontend/.streamlit/secrets.toml.example) に設定します。閲覧用 MQTT は未ログインでもゲスト Identity Pool ロールで購読できます。閲覧者アカウントは CDK が作成します。client secret や機器秘密鍵を Git に push しないでください。
 
 ## 月額コストの事前見積もり
 
-2026-09-27 時点。東京リージョン、温湿度を毎分 1 件、状態を 1 日 4 件、Web を 1 日 1 時間閲覧、30 日稼働と仮定します。AWS Price List API の東京料金を使うと、IoT Core のメッセージ・接続・ルールは約 **$0.13/月**、Secrets Manager は 1 secret とルール実行ごとに 1 回の取得を仮定して約 **$0.62/月**、合計約 **$0.75/月** です。API Gateway、Lambda、S3 エラー保存、CloudWatch Logs、Cognito はこの小規模利用では少額または無料枠内と見込みます。実際のトラフィック、無料枠の共有状況、ログ量、失敗時のリトライ、為替で変動します。
+2026-09-27 時点。東京リージョン、温湿度を毎分 1 件、状態を 1 日 4 件、Web を 1 日 1 時間閲覧、30 日稼働と仮定します。AWS Price List API の東京料金を使うと、IoT Core のメッセージ・接続・ルールは約 **$0.13/月**、Secrets Manager は 1 secret とルール実行ごとに 1 回の取得を仮定して約 **$0.62/月**、合計約 **$0.75/月** です。API Gateway、Lambda、S3 エラー保存、CloudWatch Logs、Cognito はこの小規模利用では少額または無料枠内と見込みます。未ログイン閲覧を公開したため、同時閲覧者や閲覧時間が増えると IoT Core の接続・配信料金も増えます。実際のトラフィック、無料枠の共有状況、ログ量、失敗時のリトライ、為替で変動します。
 
 AWS Budgets には、ユーザー指定により AWS CLI でアカウント全体の月額 **3 USD** 予算 `monthly-3-usd-alert` を別途作成済みです。実績 80%・100% と予測 100% で `nagutabby@nagutabby.uk` に通知します。予算は課金を停止しません。デプロイ後は Cost Explorer の実績と照合します。
 

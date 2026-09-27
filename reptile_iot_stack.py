@@ -83,7 +83,7 @@ class ReptileIotStack(Stack):
         )
         identity_pool = cognito.CfnIdentityPool(
             self, "ViewerIdentities",
-            allow_unauthenticated_identities=False,
+            allow_unauthenticated_identities=True,
             cognito_identity_providers=[cognito.CfnIdentityPool.CognitoIdentityProviderProperty(
                 client_id=user_client.user_pool_client_id,
                 provider_name=user_pool.user_pool_provider_name,
@@ -101,6 +101,17 @@ class ReptileIotStack(Stack):
                 assume_role_action="sts:AssumeRoleWithWebIdentity",
             ),
         )
+        guest_role = iam.Role(
+            self, "GuestViewerRole",
+            assumed_by=iam.FederatedPrincipal(
+                "cognito-identity.amazonaws.com",
+                conditions={
+                    "StringEquals": {"cognito-identity.amazonaws.com:aud": identity_pool.ref},
+                    "ForAnyValue:StringLike": {"cognito-identity.amazonaws.com:amr": "unauthenticated"},
+                },
+                assume_role_action="sts:AssumeRoleWithWebIdentity",
+            ),
+        )
         web_permissions = [
             (["iot:Connect"], [topic_arn("client", "reptile-web-*")]),
             (["iot:Subscribe"], [topic_arn("topicfilter", TELEMETRY_TOPIC), topic_arn("topicfilter", STATE_TOPIC)]),
@@ -108,10 +119,11 @@ class ReptileIotStack(Stack):
         ]
         for actions, resources in web_permissions:
             web_role.add_to_policy(iam.PolicyStatement(actions=actions, resources=resources))
+            guest_role.add_to_policy(iam.PolicyStatement(actions=actions, resources=resources))
         cognito.CfnIdentityPoolRoleAttachment(
             self, "ViewerRoleAttachment",
             identity_pool_id=identity_pool.ref,
-            roles={"authenticated": web_role.role_arn},
+            roles={"authenticated": web_role.role_arn, "unauthenticated": guest_role.role_arn},
         )
         web_policy = iot.CfnPolicy(
             self, "WebReadOnlyPolicy",
