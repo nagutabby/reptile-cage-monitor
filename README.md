@@ -42,3 +42,11 @@ openssl req -new -key devices/controller.key -subj /CN=reptile-controller -out d
 Secrets Manager の `IngestSecretArn` にある `key` を Render の `IOT_INGEST_KEY` に設定します。IoT HTTP destination の確認トークンは FastAPI の `/api/iot/confirm` が Render のログに出力するので、確認後に `aws iot confirm-topic-rule-destination` を実行します。Render への HTTPS 接続とルールの送信結果を確認してください。
 
 Cognito app client の secret、User Pool ID、`SessionUrl` を [Streamlit 側](../reptile-monitor/frontend/.streamlit/secrets.toml.example) に設定し、閲覧者アカウントを作成します。これらの実値や機器秘密鍵を Git に push しないでください。
+
+## 月額コストの事前見積もり
+
+2026-09-27 時点。東京リージョン、温湿度を毎分 1 件、状態を 1 日 4 件、Web を 1 日 1 時間閲覧、30 日稼働と仮定します。AWS Price List API の東京料金を使うと、IoT Core のメッセージ・接続・ルールは約 **$0.13/月**、Secrets Manager は 1 secret とルール実行ごとに 1 回の取得を仮定して約 **$0.62/月**、合計約 **$0.75/月** です。API Gateway、Lambda、S3 エラー保存、CloudWatch Logs、Cognito はこの小規模利用では少額または無料枠内と見込みます。実際のトラフィック、無料枠の共有状況、ログ量、失敗時のリトライ、為替で変動します。
+
+AWS Budgets には、ユーザー指定により AWS CLI でアカウント全体の月額 **3 USD** 予算 `monthly-3-usd-alert` を別途作成済みです。実績 80%・100% と予測 100% で `nagutabby@nagutabby.uk` に通知します。予算は課金を停止しません。デプロイ後は Cost Explorer の実績と照合します。
+
+料金の根拠: [AWS IoT Core](https://aws.amazon.com/iot-core/pricing/)、[Secrets Manager](https://aws.amazon.com/secrets-manager/pricing/)、[Cognito](https://aws.amazon.com/cognito/pricing/)、[API Gateway](https://aws.amazon.com/api-gateway/pricing/)。
