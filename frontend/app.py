@@ -1,4 +1,4 @@
-"""ログイン時の MQTT ライブ値と、誰でも閲覧できる FastAPI/D1 の履歴を表示する。"""
+"""誰でも MQTT ライブ値と FastAPI/D1 の履歴を閲覧できるダッシュボード。"""
 
 import json
 import os
@@ -67,29 +67,16 @@ def _get_setting(key: str) -> str:
 
 FASTAPI_URL = _get_setting("FASTAPI_URL").rstrip("/")
 API_KEY = _get_setting("API_KEY")
+IOT_PUBLIC_CONFIG = {
+    "identityPoolId": "ap-northeast-1:3ccb81db-777b-4704-abb3-93a74da4ae17",
+    "endpoint": "avwuqaukxpjz3-ats.iot.ap-northeast-1.amazonaws.com",
+    "region": "ap-northeast-1",
+}
 
 
-def get_iot_credentials() -> dict:
-    cached = st.session_state.get("iot_credentials")
-    if cached and datetime.fromisoformat(cached["expiration"]) > datetime.now(timezone.utc) + timedelta(minutes=5):
-        return cached
-
-    response = httpx.post(
-        _get_setting("IOT_SESSION_URL"),
-        headers={"Authorization": f"Bearer {st.user.tokens.id}"},
-        timeout=15.0,
-    )
-    response.raise_for_status()
-    result = response.json()
-    st.session_state.iot_credentials = result
-    return result
-
-
-@st.fragment(run_every=timedelta(minutes=40))
 def render_live() -> None:
-    config = get_iot_credentials()
     bundle = (Path(__file__).parent / "live" / "live-client.bundle.js").read_text()
-    safe_config = json.dumps(config).replace("<", "\\u003c")
+    safe_config = json.dumps(IOT_PUBLIC_CONFIG).replace("<", "\\u003c")
     components.html(
         """<style>
         body { margin: 0; color: #f5eee7; font-family: sans-serif; }
@@ -130,17 +117,6 @@ RANGE_OPTIONS = {
     "1週間": timedelta(weeks=1),
 }
 DEFAULT_RANGE_LABEL = "6時間"
-
-
-@st.cache_data(ttl=10)
-def fetch_device_state() -> dict:
-    resp = httpx.get(
-        f"{FASTAPI_URL}/api/device_state",
-        headers={"X-API-Key": API_KEY},
-        timeout=10.0,
-    )
-    resp.raise_for_status()
-    return resp.json()
 
 
 @st.cache_data(ttl=10)
@@ -205,44 +181,18 @@ def line_chart_with_thresholds(
     return (line + rules + labels).properties(height=280)
 
 
-def _device_state_label(is_on: bool | None) -> str:
-    if is_on is None:
-        return "不明"
-    return "ON" if is_on else "OFF"
-
-
-@st.fragment(run_every=AUTO_REFRESH_SECONDS)
-def render_public_latest() -> None:
-    readings = fetch_readings(60)
-    state = fetch_device_state()
-    latest = readings.iloc[-1] if not readings.empty else None
-    columns = st.columns(4)
-    columns[0].metric("最新温度", f"{latest['temp_c']:.1f} ℃" if latest is not None else "-- ℃")
-    columns[1].metric("最新湿度", f"{latest['humidity']:.0f} %" if latest is not None else "-- %")
-    columns[2].metric("ライト", _device_state_label(state["is_light_on"]))
-    columns[3].metric("パネルヒーター", _device_state_label(state["is_heater_on"]))
-    if latest is not None:
-        st.caption(f"温湿度: {latest['recorded_at'].strftime('%Y-%m-%d %H:%M:%S')}（1分ごとに更新）")
-    else:
-        st.caption("温湿度: 直近1時間のデータがありません。")
-
-
 with st.container(border=True):
     header_label, header_action = st.columns([5, 1], vertical_alignment="center")
     header_label.caption("閲覧モード · ログイン中" if st.user.is_logged_in else "閲覧モード · 誰でも閲覧できます")
     if st.user.is_logged_in:
         if header_action.button("ログアウト", use_container_width=True):
-            st.session_state.pop("iot_credentials", None)
             st.logout()
     elif header_action.button("ログイン", use_container_width=True):
         st.login("cognito")
 
 st.title(PAGE_TITLE)
-st.caption("最新値はログイン中に MQTT、それ以外は1分ごとに更新されます。履歴グラフも1分ごとに更新されます。")
-if st.user.is_logged_in:
-    render_live()
-else:
-    render_public_latest()
+st.caption("最新値は MQTT で更新され、履歴グラフは1分ごとに更新されます。")
+render_live()
 
 if "range_label" not in st.session_state:
     st.session_state.range_label = DEFAULT_RANGE_LABEL

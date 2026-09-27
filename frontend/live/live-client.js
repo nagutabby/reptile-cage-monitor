@@ -1,4 +1,5 @@
 import mqtt from "mqtt";
+import { CognitoIdentityClient, GetCredentialsForIdentityCommand, GetIdCommand } from "@aws-sdk/client-cognito-identity";
 
 const encoder = new TextEncoder();
 const hex = (buffer) => Array.from(new Uint8Array(buffer), (byte) => byte.toString(16).padStart(2, "0")).join("");
@@ -9,7 +10,7 @@ async function hmac(key, value) {
   return new Uint8Array(await crypto.subtle.sign("HMAC", imported, encoder.encode(value)));
 }
 
-async function signedUrl(config) {
+export async function signedUrl(config) {
   const now = new Date();
   const stamp = now.toISOString().replace(/[-:]|\.\d{3}/g, "").slice(0, 15) + "Z";
   const date = stamp.slice(0, 8);
@@ -37,19 +38,31 @@ async function signedUrl(config) {
 
 export async function start(config) {
   const setText = (id, value) => { document.getElementById(id).textContent = value; };
+  const identityClient = new CognitoIdentityClient({ region: config.region });
+  let identityId;
   let client;
   let stopped = false;
 
   async function connect() {
     if (stopped) return;
-    if (Date.now() >= Date.parse(config.expiration) - 30000) {
-      setText("connection", "認証期限切れです。ページを再読み込みしてください。");
-      return;
-    }
     try {
-      const url = await signedUrl(config);
+      if (!identityId) {
+        identityId = (await identityClient.send(new GetIdCommand({ IdentityPoolId: config.identityPoolId }))).IdentityId;
+      }
+      if (!identityId) throw new Error("Cognito identity ID is missing");
+      const response = await identityClient.send(new GetCredentialsForIdentityCommand({ IdentityId: identityId }));
+      const credentials = response.Credentials;
+      if (!credentials?.AccessKeyId || !credentials?.SecretKey || !credentials?.SessionToken) {
+        throw new Error("Cognito guest credentials are missing");
+      }
+      const url = await signedUrl({
+        ...config,
+        accessKeyId: credentials.AccessKeyId,
+        secretAccessKey: credentials.SecretKey,
+        sessionToken: credentials.SessionToken,
+      });
       client = mqtt.connect(url, {
-        clientId: `reptile-web-${config.identityId.replace(/[^A-Za-z0-9]/g, "")}-${crypto.randomUUID().slice(0, 8)}`,
+        clientId: `reptile-web-${identityId.replace(/[^A-Za-z0-9]/g, "")}-${crypto.randomUUID().slice(0, 8)}`,
         protocolVersion: 4,
         reconnectPeriod: 0,
         connectTimeout: 10000,
