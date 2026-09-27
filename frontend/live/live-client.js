@@ -40,11 +40,13 @@ export async function start(config) {
   const setText = (id, value) => { document.getElementById(id).textContent = value; };
   const shadowBase = "$aws/things/reptile-controller/shadow";
   const warning = document.getElementById("sync-warning");
+  const updated = document.getElementById("updated");
   let shadowVersion = -1;
   let shadowSnapshot;
   function showWarning(message) {
     warning.hidden = !message;
     warning.textContent = message || "";
+    updated.hidden = Boolean(message);
   }
   function checkShadow() {
     if (!shadowSnapshot) return;

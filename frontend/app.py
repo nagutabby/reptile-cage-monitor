@@ -89,8 +89,9 @@ def render_live() -> None:
                         border-radius: 8px; padding: 8px 12px; margin-top: 8px; font-size: 13px; }
         @media(max-width:600px) {
             .grid { grid-template-columns: repeat(2, minmax(0,1fr)); }
-            .card { padding: 10px; }
-            .value { font-size: 22px; }
+            .card { padding: 6px; }
+            .label { font-size: 11px; }
+            .value { font-size: 18px; margin-top: 4px; }
         }
         </style><div class="grid">
         <div class="card"><div class="label">最新温度</div><div class="value" id="temperature">-- ℃</div></div>
@@ -101,7 +102,7 @@ def render_live() -> None:
         <div class="sync-warning" id="sync-warning" role="alert" hidden></div><script>"""
         + bundle.replace("</script", "<\\/script")
         + f"\nReptileLive.start({safe_config});</script>",
-        height=230,
+        height=200,
         scrolling=False,
     )
 
