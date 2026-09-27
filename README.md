@@ -5,10 +5,11 @@
 | 環境 | 役割 | MQTT 権限 |
 | --- | --- | --- |
 | `sensor-pub` | SwitchBot 温湿度計を BLE で読み、1 分ごとに測定値を送信 | `reptile/cage/telemetry` への publish のみ |
-| `controller-sub` | 測定値を受信してヒーターを制御し、JST 7–19 時に UVB ライトを制御 | telemetry の subscribe、`reptile/cage/state` への publish |
+| `controller-sub` | 測定値を受信してヒーターを制御し、JST 7–19 時に UVB ライトを制御 | telemetry の subscribe、`reptile/cage/state` と Device Shadow への publish |
 | `inspection` | SwitchBot プラグの接続確認 | MQTT なし |
 
 ヒーターは 32°C を境に ON/OFF します。測定値が届かない間は直前の状態を維持します。古い retained 測定値は制御に使いません。
+コントローラーは1分ごとに Device Shadow の `desired`（自動制御の目標）と `reported`（プラグから確認した状態）を更新します。両者の不一致や3分を超える報告停止は Web と LINE で警告します。
 
 ## 準備
 

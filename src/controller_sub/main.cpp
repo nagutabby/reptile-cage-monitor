@@ -12,6 +12,7 @@ namespace {
 constexpr char CLIENT_ID[] = "reptile-controller";
 constexpr char TELEMETRY_TOPIC[] = "reptile/cage/telemetry";
 constexpr char STATE_TOPIC[] = "reptile/cage/state";
+constexpr char SHADOW_UPDATE_TOPIC[] = "$aws/things/reptile-controller/shadow/update";
 constexpr char UVB_MAC[] = "70:af:09:17:2a:d2";
 constexpr char HEATER_MAC[] = "ac:27:6e:40:5a:a2";
 MqttLink mqtt(CLIENT_ID);
@@ -21,10 +22,13 @@ bool lightKnown = false;
 bool heaterKnown = false;
 bool stateDirty = true;
 bool pendingTemperature = false;
+bool desiredLightOn = false;
+bool desiredHeaterOn = false;
 float latestTemperature = 0;
 uint32_t bootId;
 uint32_t sequence = 0;
 uint32_t nextCheckMs = 0;
+uint32_t nextShadowMs = 0;
 
 void onMessage(char* topic, byte* payload, unsigned int length) {
     if (strcmp(topic, TELEMETRY_TOPIC) != 0 || length >= 256) return;
@@ -44,10 +48,17 @@ void onMessage(char* topic, byte* payload, unsigned int length) {
 }
 
 void checkPlugStates() {
-    bool previouslyKnown = lightKnown && heaterKnown;
-    if (!lightKnown) lightKnown = SwitchBotBLE::plugReadState(UVB_MAC, lightOn);
-    if (!heaterKnown) heaterKnown = SwitchBotBLE::plugReadState(HEATER_MAC, heaterOn);
-    if (!previouslyKnown && lightKnown && heaterKnown) stateDirty = true;
+    bool observed;
+    if (SwitchBotBLE::plugReadState(UVB_MAC, observed)) {
+        if (!lightKnown || lightOn != observed) stateDirty = true;
+        lightOn = observed;
+        lightKnown = true;
+    }
+    if (SwitchBotBLE::plugReadState(HEATER_MAC, observed)) {
+        if (!heaterKnown || heaterOn != observed) stateDirty = true;
+        heaterOn = observed;
+        heaterKnown = true;
+    }
 }
 
 void applyLightSchedule() {
@@ -58,27 +69,27 @@ void applyLightSchedule() {
     gmtime_r(&now, &local);
     int jstHour = (local.tm_hour + 9) % 24;
     local.tm_hour = jstHour;
-    bool desired = ControlLogic::computeDesiredLightOn(local, 7, 19);
-    if (desired == lightOn) return;
-    bool ok = desired ? SwitchBotBLE::plugTurnOn(UVB_MAC) : SwitchBotBLE::plugTurnOff(UVB_MAC);
+    desiredLightOn = ControlLogic::computeDesiredLightOn(local, 7, 19);
+    if (desiredLightOn == lightOn) return;
+    bool ok = desiredLightOn ? SwitchBotBLE::plugTurnOn(UVB_MAC) : SwitchBotBLE::plugTurnOff(UVB_MAC);
     if (ok) {
-        lightOn = desired;
+        lightOn = desiredLightOn;
         stateDirty = true;
-        Serial.printf("[Light] %s\n", desired ? "ON" : "OFF");
+        Serial.printf("[Light] %s\n", desiredLightOn ? "ON" : "OFF");
     }
 }
 
 void applyTemperature() {
     if (!pendingTemperature) return;
-    pendingTemperature = false;
     if (!heaterKnown) return;
-    bool desired = ControlLogic::computeDesiredHeaterOn(latestTemperature, 32.0f);
-    if (desired == heaterOn) return;
-    bool ok = desired ? SwitchBotBLE::plugTurnOn(HEATER_MAC) : SwitchBotBLE::plugTurnOff(HEATER_MAC);
+    pendingTemperature = false;
+    desiredHeaterOn = ControlLogic::computeDesiredHeaterOn(latestTemperature, 32.0f);
+    if (desiredHeaterOn == heaterOn) return;
+    bool ok = desiredHeaterOn ? SwitchBotBLE::plugTurnOn(HEATER_MAC) : SwitchBotBLE::plugTurnOff(HEATER_MAC);
     if (ok) {
-        heaterOn = desired;
+        heaterOn = desiredHeaterOn;
         stateDirty = true;
-        Serial.printf("[Heater] %s\n", desired ? "ON" : "OFF");
+        Serial.printf("[Heater] %s\n", desiredHeaterOn ? "ON" : "OFF");
     }
 }
 
@@ -105,6 +116,22 @@ void reportState() {
     serializeJson(doc, payload, sizeof(payload));
     stateDirty = !mqtt.publish(STATE_TOPIC, payload, true);
 }
+
+void reportShadow(uint32_t nowMs) {
+    if (!lightKnown || !heaterKnown || !mqtt.connected()) return;
+    if ((int32_t)(nowMs - nextShadowMs) < 0) return;
+    StaticJsonDocument<256> doc;
+    JsonObject state = doc.createNestedObject("state");
+    JsonObject desired = state.createNestedObject("desired");
+    desired["is_light_on"] = desiredLightOn;
+    desired["is_heater_on"] = desiredHeaterOn;
+    JsonObject reported = state.createNestedObject("reported");
+    reported["is_light_on"] = lightOn;
+    reported["is_heater_on"] = heaterOn;
+    char payload[256];
+    serializeJson(doc, payload, sizeof(payload));
+    if (mqtt.publish(SHADOW_UPDATE_TOPIC, payload)) nextShadowMs = nowMs + 60000;
+}
 } // namespace
 
 void setup() {
@@ -115,6 +142,8 @@ void setup() {
     mqtt.setCallback(onMessage);
     mqtt.begin();
     checkPlugStates();
+    desiredLightOn = lightOn;
+    desiredHeaterOn = heaterOn;
 }
 
 void loop() {
@@ -132,5 +161,6 @@ void loop() {
     }
     applyTemperature();
     reportState();
+    reportShadow(now);
     delay(10);
 }
