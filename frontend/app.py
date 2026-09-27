@@ -9,7 +9,6 @@ import altair as alt
 import httpx
 import pandas as pd
 import streamlit as st
-import streamlit.components.v1 as components
 
 # レオパ配色(config.tomlの背景色 #1a130f を基準に dataviz skill の
 # validate_palette.js でCVD分離度・コントラストを検証済み)。
@@ -77,7 +76,7 @@ IOT_PUBLIC_CONFIG = {
 def render_live() -> None:
     bundle = (Path(__file__).parent / "live" / "live-client.bundle.js").read_text()
     safe_config = json.dumps(IOT_PUBLIC_CONFIG).replace("<", "\\u003c")
-    components.html(
+    st.iframe(
         """<style>
         body { margin: 0; color: #f5eee7; font-family: sans-serif; }
         .grid { display: grid; grid-template-columns: repeat(4, minmax(0,1fr)); gap: 12px; }
@@ -102,8 +101,6 @@ def render_live() -> None:
         <div class="sync-warning" id="sync-warning" role="alert" hidden></div><script>"""
         + bundle.replace("</script", "<\\/script")
         + f"\nReptileLive.start({safe_config});</script>",
-        height=200,
-        scrolling=False,
     )
 
 # 異常値の目安ライン(表示用)。backend/app/config.py の値と一致させること。
