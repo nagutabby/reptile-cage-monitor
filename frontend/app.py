@@ -1,15 +1,15 @@
-"""ヒョウモントカゲモドキ ケージの温湿度モニター (Streamlit)。
+"""MQTT/WSS の最新値と、FastAPI/D1 の履歴を表示する Streamlit ダッシュボード。"""
 
-FastAPIバックエンドの GET /api/readings を叩いて可視化する(D1には直接アクセスしない)。
-"""
-
+import json
 import os
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
 
 import altair as alt
 import httpx
 import pandas as pd
 import streamlit as st
+import streamlit.components.v1 as components
 
 # レオパ配色(config.tomlの背景色 #1a130f を基準に dataviz skill の
 # validate_palette.js でCVD分離度・コントラストを検証済み)。
@@ -54,6 +54,16 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
+if not st.user.is_logged_in:
+    st.title(PAGE_TITLE)
+    if st.button("ログイン"):
+        st.login("cognito")
+    st.stop()
+
+if int(st.user.get("exp", 0)) <= datetime.now(timezone.utc).timestamp():
+    st.logout()
+    st.stop()
+
 
 def _get_setting(key: str) -> str:
     if key in st.secrets:
@@ -63,6 +73,49 @@ def _get_setting(key: str) -> str:
 
 FASTAPI_URL = _get_setting("FASTAPI_URL").rstrip("/")
 API_KEY = _get_setting("API_KEY")
+
+
+def get_iot_credentials() -> dict:
+    cached = st.session_state.get("iot_credentials")
+    if cached and datetime.fromisoformat(cached["expiration"]) > datetime.now(timezone.utc) + timedelta(minutes=5):
+        return cached
+
+    response = httpx.post(
+        _get_setting("IOT_SESSION_URL"),
+        headers={"Authorization": f"Bearer {st.user.tokens.id}"},
+        timeout=15.0,
+    )
+    response.raise_for_status()
+    result = response.json()
+    st.session_state.iot_credentials = result
+    return result
+
+
+@st.fragment(run_every=timedelta(minutes=40))
+def render_live() -> None:
+    config = get_iot_credentials()
+    bundle = (Path(__file__).parent / "live" / "live-client.bundle.js").read_text()
+    safe_config = json.dumps(config).replace("<", "\\u003c")
+    components.html(
+        """<style>
+        body { margin: 0; color: #f5eee7; font-family: sans-serif; }
+        .grid { display: grid; grid-template-columns: repeat(4, minmax(0,1fr)); gap: 12px; }
+        .card { background: #31241b; border-radius: 10px; padding: 16px; }
+        .label { color: #c8b7a6; font-size: 13px; }
+        .value { font-size: 26px; margin-top: 7px; }
+        .status { color: #c8b7a6; font-size: 12px; margin-top: 10px; }
+        @media(max-width:600px) { .grid { grid-template-columns: repeat(2, minmax(0,1fr)); } }
+        </style><div class="grid">
+        <div class="card"><div class="label">最新温度</div><div class="value" id="temperature">-- ℃</div></div>
+        <div class="card"><div class="label">最新湿度</div><div class="value" id="humidity">-- %</div></div>
+        <div class="card"><div class="label">ライト</div><div class="value" id="light">不明</div></div>
+        <div class="card"><div class="label">パネルヒーター</div><div class="value" id="heater">不明</div></div>
+        </div><div class="status"><span id="connection">接続準備中</span> · <span id="updated">温湿度: --</span></div><script>"""
+        + bundle.replace("</script", "<\\/script")
+        + f"\nReptileLive.start({safe_config});</script>",
+        height=150,
+        scrolling=False,
+    )
 
 # 異常値の目安ライン(表示用)。backend/app/config.py の値と一致させること。
 TEMP_MIN_C = 24.0
@@ -163,7 +216,10 @@ def _device_state_label(is_on: bool | None) -> str:
 
 
 st.title(PAGE_TITLE)
-st.caption("1分ごとに自動更新されます。")
+st.caption("最新値は MQTT で更新され、履歴グラフは1分ごとに更新されます。")
+if st.button("ログアウト"):
+    st.logout()
+render_live()
 
 if "range_label" not in st.session_state:
     st.session_state.range_label = DEFAULT_RANGE_LABEL
@@ -198,15 +254,9 @@ def render_dashboard() -> None:
     is_temp_abnormal = latest["temp_c"] < TEMP_MIN_C or latest["temp_c"] > TEMP_MAX_C
     is_humidity_abnormal = latest["humidity"] < HUMIDITY_MIN or latest["humidity"] > HUMIDITY_MAX
 
-    device_state = fetch_device_state()
-
-    col1, col2, col3, col4 = st.columns(4)
-    col1.metric("最新温度", f"{latest['temp_c']:.1f} ℃", delta="異常" if is_temp_abnormal else None, delta_color="inverse")
-    col2.metric("最新湿度", f"{latest['humidity']:.0f} %", delta="異常" if is_humidity_abnormal else None, delta_color="inverse")
-    col3.metric("ライト", _device_state_label(device_state["is_light_on"]))
-    col4.metric("パネルヒーター", _device_state_label(device_state["is_heater_on"]))
-
-    st.caption(f"最終更新: {latest['recorded_at'].strftime('%Y-%m-%d %H:%M:%S')}")
+    st.caption(f"履歴の最終記録: {latest['recorded_at'].strftime('%Y-%m-%d %H:%M:%S')}")
+    if is_temp_abnormal or is_humidity_abnormal:
+        st.warning("履歴の最新測定値が許容範囲外です。")
 
     st.subheader("温度の推移")
     st.altair_chart(

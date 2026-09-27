@@ -1,75 +1,38 @@
 # reptile-monitor
 
-ヒョウモントカゲモドキケージの温度・湿度モニタリングダッシュボード。
+ヒョウモントカゲモドキのケージを監視する Web アプリです。構成は [Python CDK](../reptile-iot-cdk/) と [AtomS3 ファームウェア](../atoms3-reptile-cage/) を参照してください。
 
-## 構成
-
-- `backend/`: FastAPI。M5Stack(`atoms3-reptile-cage`)からのレポートを受信し、Cloudflare D1に保存、異常値ならLINEに通知する。Renderにデプロイする。
-- `frontend/`: Streamlit。FastAPIの`GET /api/readings`を叩いて温度・湿度の推移を可視化する。Streamlit Community Cloudにデプロイする。
-- `schema.sql`: D1の初期スキーマ(`readings`, `alert_state`)。
-
-データはCloudflare D1(SQLite互換のサーバーレスDB)に集約されるため、backend/frontendのどちらも状態を持たない(永続ディスク不要)。
+| 部分 | 役割 |
+| --- | --- |
+| `backend/` | Render 上の FastAPI。IoT Core の HTTP ルールから測定値・制御状態を受け、Cloudflare D1 に保存し、異常値を LINE 通知 |
+| `frontend/` | Streamlit。Cognito でログインし、IoT Core MQTT over WebSocket でライブ値を表示。履歴は FastAPI から取得 |
+| `schema.sql` / `migrations/001_mqtt.sql` | 新規 D1 データベース用 / 既存 D1 データベースの MQTT 移行用 SQL |
 
 ## セットアップ
 
-### 1. Cloudflare D1
+1. 既存の D1 データベースには `npx wrangler d1 execute reptile-monitor --remote --file=migrations/001_mqtt.sql` を実行します。新規 DB には `schema.sql` を使います。
+2. Render の `render.yaml` で backend をデプロイし、D1 と LINE の既存設定を維持します。IoT Core の ingest key は CDK が Secrets Manager に作成するため、デプロイ後に取得して Render の `IOT_INGEST_KEY` に設定します。
+3. [reptile-iot-cdk](../reptile-iot-cdk/) を synth・deploy します。IoT HTTP destination の確認もその README に従います。
+4. Streamlit Community Cloud の secrets に `frontend/.streamlit/secrets.toml.example` にある Cognito と IoT session URL の値を設定し、Cognito に閲覧者を登録します。
+5. フロントエンドの MQTT bundle を更新する場合は `cd frontend/live && npm ci && npm run build` を実行し、生成した `live-client.bundle.js` をコミットします。
 
-```sh
-npx wrangler login
-npx wrangler d1 create reptile-monitor
-npx wrangler d1 execute reptile-monitor --remote --file=schema.sql
-```
+Render の `API_KEY` は履歴 API 用で、`IOT_INGEST_KEY` は IoT Core の HTTP ルール専用です。M5Stack にどちらのキーも保存しません。
 
-作成後に表示される `database_id` と、Cloudflareダッシュボードで確認できる `account_id` を後述の`.env`に設定する。`CLOUDFLARE_API_TOKEN` はD1の編集権限を持つAPIトークンを [My Profile > API Tokens](https://dash.cloudflare.com/profile/api-tokens) で発行する。
-
-### 2. LINE Messaging API
-
-既存のMessaging APIチャンネルの「チャンネルアクセストークン(長期)」を発行し、通知先(自分のuserId、または作成したグループのgroupId)を確認しておく。
-
-### 3. バックエンド (ローカル起動)
+## ローカル実行とテスト
 
 ```sh
 cd backend
-python3 -m venv .venv && source .venv/bin/activate
-pip install -r requirements.txt
-cp .env.example .env  # 値を入力する
-uvicorn app.main:app --reload
+python3 -m venv .venv
+.venv/bin/pip install -r requirements-dev.txt
+.venv/bin/pytest -q
 ```
-
-動作確認:
-
-```sh
-curl -X POST http://localhost:8000/api/readings \
-  -H "X-API-Key: <API_KEY>" -H "Content-Type: application/json" \
-  -d '{"temp_c": 25.0, "humidity": 30}'
-
-curl http://localhost:8000/api/readings -H "X-API-Key: <API_KEY>"
-```
-
-`backend/app/config.py` のしきい値(温度24-30℃、湿度40-90%)外の値を送ると、LINEに通知が届くことを確認する。異常値判定のしきい値は機密情報ではないため`.env`ではなく`config.py`の定数として管理している。
-
-### 4. テスト (異常値判定・再通知抑制の回帰テスト)
-
-```sh
-cd backend
-pip install -r requirements-dev.txt
-pytest
-```
-
-D1・LINEへは実際に接続せず、`alerts.evaluate_and_notify`の状態遷移(正常→異常/異常継続時の再通知抑制/異常→正常)とAPIの認証をテストする。
-
-### 5. フロントエンド (ローカル起動)
 
 ```sh
 cd frontend
-python3 -m venv .venv && source .venv/bin/activate
-pip install -r requirements.txt
-cp .streamlit/secrets.toml.example .streamlit/secrets.toml  # 値を入力する
-streamlit run app.py
+python3 -m venv .venv
+.venv/bin/pip install -r requirements.txt
+cp .streamlit/secrets.toml.example .streamlit/secrets.toml
+.venv/bin/streamlit run app.py
 ```
 
-### 6. デプロイ
-
-- **Render**: Renderダッシュボードで「New > Blueprint」からこのリポジトリを接続し、`render.yaml`を検出させる。`sync: false`の環境変数(APIキー・Cloudflare・LINE関連)をダッシュボード上で入力する。
-- **Streamlit Community Cloud**: [share.streamlit.io](https://share.streamlit.io) でリポジトリ・`frontend/app.py`を指定してデプロイする。Settings > Secrets に `secrets.toml.example` と同じ内容(実際の値)を貼り付ける。
-- デプロイ後、Render側の公開URLを `atoms3-reptile-cage/include/wifi_config.h` の `API_ENDPOINT_URL` に設定し、ファームウェアを書き込む。
+Streamlit のローカルログインは Cognito app client の callback URL に `http://localhost:8501/oauth2callback` を追加してから使用します。公開先 URL と異なる場合は CDK の `webBaseUrl` を実際の公開先に合わせてください。

@@ -6,7 +6,7 @@ import anyio.to_thread
 from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request
 
 from . import alerts, config, d1
-from .schemas import DeviceStateOut, ReadingIn, ReadingOut
+from .schemas import DeviceStateOut, IoTStateIn, IoTTelemetryIn, ReadingIn, ReadingOut
 
 logger = logging.getLogger("reptile_monitor")
 
@@ -32,6 +32,11 @@ def verify_api_key(x_api_key: str = Header(...)) -> None:
         raise HTTPException(status_code=401, detail="invalid API key")
 
 
+def verify_iot_key(x_iot_key: str = Header(...)) -> None:
+    if not config.IOT_INGEST_KEY or x_iot_key != config.IOT_INGEST_KEY:
+        raise HTTPException(status_code=401, detail="invalid IoT ingest key")
+
+
 @app.get("/healthz")
 def healthz() -> dict:
     return {"status": "ok"}
@@ -49,6 +54,43 @@ def create_reading(reading: ReadingIn) -> dict:
     return {"status": "ok"}
 
 
+@app.post("/api/iot/telemetry", dependencies=[Depends(verify_iot_key)])
+def ingest_telemetry(reading: IoTTelemetryIn) -> dict:
+    environment = reading.to_environment()
+    recorded_at = reading.observed_at.astimezone(timezone.utc).isoformat()
+    inserted = d1.query(
+        "INSERT INTO readings (event_id, temp_c, humidity, recorded_at) VALUES (?, ?, ?, ?) "
+        "ON CONFLICT(event_id) DO NOTHING RETURNING id",
+        [reading.event_id, environment.temperature.celsius, environment.humidity.percent, recorded_at],
+    )
+    if inserted:
+        alerts.evaluate_and_notify(environment)
+    return {"status": "ok", "inserted": bool(inserted)}
+
+
+@app.post("/api/iot/state", dependencies=[Depends(verify_iot_key)])
+def ingest_state(state: IoTStateIn) -> dict:
+    reported_at = state.observed_at.astimezone(timezone.utc).isoformat()
+    d1.query(
+        "INSERT INTO device_state (id, is_light_on, is_heater_on, reported_at, event_id) "
+        "VALUES (1, ?, ?, ?, ?) "
+        "ON CONFLICT(id) DO UPDATE SET is_light_on = excluded.is_light_on, "
+        "is_heater_on = excluded.is_heater_on, reported_at = excluded.reported_at, "
+        "event_id = excluded.event_id WHERE excluded.reported_at > device_state.reported_at",
+        [state.is_light_on, state.is_heater_on, reported_at, state.event_id],
+    )
+    return {"status": "ok"}
+
+
+@app.post("/api/iot/confirm")
+async def confirm_iot_destination(request: Request) -> dict:
+    # AWS IoT の HTTP destination 確認時だけ呼ばれる。確認操作は運用者が CLI で行う。
+    body = await request.json()
+    if body.get("messageType") == "DestinationConfirmation" and body.get("confirmationToken"):
+        logger.info("[IoT destination] confirmationToken=%s", body["confirmationToken"])
+    return {"status": "ok"}
+
+
 @app.get("/api/readings", response_model=list[ReadingOut], dependencies=[Depends(verify_api_key)])
 def list_readings(minutes: int = Query(default=360, ge=1, le=MAX_LOOKBACK_MINUTES)) -> list[dict]:
     cutoff = (datetime.now(timezone.utc) - timedelta(minutes=minutes)).isoformat()
@@ -60,6 +102,15 @@ def list_readings(minutes: int = Query(default=360, ge=1, le=MAX_LOOKBACK_MINUTE
 
 @app.get("/api/device_state", response_model=DeviceStateOut, dependencies=[Depends(verify_api_key)])
 def get_device_state() -> dict:
+    current = d1.query("SELECT is_light_on, is_heater_on, reported_at FROM device_state WHERE id = 1")
+    if current:
+        row = current[0]
+        return {
+            "is_light_on": row["is_light_on"],
+            "is_light_on_changed_at": row["reported_at"],
+            "is_heater_on": row["is_heater_on"],
+            "is_heater_on_changed_at": row["reported_at"],
+        }
     light = d1.query(
         "SELECT is_light_on, recorded_at FROM readings WHERE is_light_on IS NOT NULL ORDER BY recorded_at DESC LIMIT 1",
     )

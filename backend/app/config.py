@@ -5,6 +5,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 API_KEY = os.environ["API_KEY"]
+IOT_INGEST_KEY = os.environ.get("IOT_INGEST_KEY", "")
 
 CLOUDFLARE_ACCOUNT_ID = os.environ["CLOUDFLARE_ACCOUNT_ID"]
 CLOUDFLARE_D1_DATABASE_ID = os.environ["CLOUDFLARE_D1_DATABASE_ID"]

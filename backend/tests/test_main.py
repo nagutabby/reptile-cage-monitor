@@ -77,6 +77,8 @@ def test_device_state_returns_latest_non_null_values(monkeypatch):
 
     def fake_query(sql, params=None):
         queries.append(sql)
+        if "FROM device_state" in sql:
+            return []
         if "is_light_on" in sql:
             return [{"is_light_on": 1, "recorded_at": "2026-09-22T10:00:00+00:00"}]
         return [{"is_heater_on": 0, "recorded_at": "2026-09-22T09:00:00+00:00"}]
@@ -92,7 +94,7 @@ def test_device_state_returns_latest_non_null_values(monkeypatch):
         "is_heater_on": False,
         "is_heater_on_changed_at": "2026-09-22T09:00:00+00:00",
     }
-    assert len(queries) == 2
+    assert len(queries) == 3
 
 
 def test_device_state_is_null_when_never_reported(monkeypatch):
@@ -179,3 +181,57 @@ def test_create_reading_stores_null_when_device_state_omitted(monkeypatch):
 
     assert resp.status_code == 201
     assert inserted_params == [[27.0, 50.0, None, None, inserted_params[0][4]]]
+
+
+def test_iot_telemetry_is_idempotent_and_alerts_once(monkeypatch):
+    queries = []
+    inserts = iter([[{"id": 1}], []])
+    monkeypatch.setattr(d1_module, "query", lambda sql, params=None: queries.append((sql, params)) or next(inserts))
+    notified = []
+    monkeypatch.setattr(alerts, "evaluate_and_notify", lambda environment: notified.append(environment))
+    payload = {"event_id": "sensor-123-1", "observed_at": "2026-09-27T01:00:00Z", "temp_c": 27, "humidity": 50}
+
+    first = client.post("/api/iot/telemetry", headers={"X-IoT-Key": "test-iot-key"}, json=payload)
+    second = client.post("/api/iot/telemetry", headers={"X-IoT-Key": "test-iot-key"}, json=payload)
+
+    assert first.json() == {"status": "ok", "inserted": True}
+    assert second.json() == {"status": "ok", "inserted": False}
+    assert len(notified) == 1
+    assert queries[0][1] == ["sensor-123-1", 27.0, 50.0, "2026-09-27T01:00:00+00:00"]
+
+
+def test_iot_ingest_rejects_wrong_key_and_invalid_measurement(monkeypatch):
+    monkeypatch.setattr(d1_module, "query", lambda sql, params=None: (_ for _ in ()).throw(AssertionError("unexpected query")))
+    payload = {"event_id": "sensor-123-1", "observed_at": "2026-09-27T01:00:00Z", "temp_c": 27, "humidity": 50}
+    assert client.post("/api/iot/telemetry", headers={"X-IoT-Key": "wrong"}, json=payload).status_code == 401
+    payload["temp_c"] = 100
+    assert client.post("/api/iot/telemetry", headers={"X-IoT-Key": "test-iot-key"}, json=payload).status_code == 422
+
+
+def test_iot_state_updates_current_state(monkeypatch):
+    queries = []
+    monkeypatch.setattr(d1_module, "query", lambda sql, params=None: queries.append((sql, params)) or [])
+    payload = {
+        "event_id": "controller-123-1",
+        "observed_at": "2026-09-27T01:00:00Z",
+        "is_light_on": True,
+        "is_heater_on": False,
+    }
+    resp = client.post("/api/iot/state", headers={"X-IoT-Key": "test-iot-key"}, json=payload)
+    assert resp.status_code == 200
+    assert "excluded.reported_at > device_state.reported_at" in queries[0][0]
+    assert queries[0][1] == [True, False, "2026-09-27T01:00:00+00:00", "controller-123-1"]
+
+
+def test_device_state_prefers_mqtt_report(monkeypatch):
+    monkeypatch.setattr(
+        d1_module,
+        "query",
+        lambda sql, params=None: [
+            {"is_light_on": 1, "is_heater_on": 0, "reported_at": "2026-09-27T01:00:00+00:00"}
+        ],
+    )
+    resp = client.get("/api/device_state", headers={"X-API-Key": config.API_KEY})
+    assert resp.status_code == 200
+    assert resp.json()["is_light_on"] is True
+    assert resp.json()["is_heater_on"] is False
