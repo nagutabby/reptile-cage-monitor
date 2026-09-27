@@ -20,7 +20,6 @@ async function signedUrl(config) {
     "X-Amz-Date": stamp,
     "X-Amz-Expires": "300",
     "X-Amz-SignedHeaders": "host",
-    "X-Amz-Security-Token": config.sessionToken,
   });
   const query = Array.from(parameters.entries())
     .sort(([a], [b]) => a.localeCompare(b))
@@ -33,7 +32,7 @@ async function signedUrl(config) {
   key = await hmac(key, "iotdevicegateway");
   key = await hmac(key, "aws4_request");
   const signature = hex(await hmac(key, stringToSign));
-  return `wss://${config.endpoint}/mqtt?${query}&X-Amz-Signature=${signature}`;
+  return `wss://${config.endpoint}/mqtt?${query}&X-Amz-Signature=${signature}&X-Amz-Security-Token=${encodeURIComponent(config.sessionToken)}`;
 }
 
 export async function start(config) {
