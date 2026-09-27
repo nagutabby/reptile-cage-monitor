@@ -139,7 +139,9 @@ class ReptileIotStack(Stack):
             },
         )
         session_function.add_to_role_policy(iam.PolicyStatement(
-            actions=["iot:AttachPolicy"], resources=[web_policy.attr_arn]
+            # Cognito identity IDs are not IoT cert or thing-group ARNs, so AttachPolicy
+            # cannot be scoped to the IoT policy ARN for this target type.
+            actions=["iot:AttachPolicy"], resources=["*"]
         ))
         session_function.add_to_role_policy(iam.PolicyStatement(
             actions=["cognito-identity:GetId", "cognito-identity:GetCredentialsForIdentity"],
