@@ -164,7 +164,8 @@ def fetch_readings(minutes: int) -> pd.DataFrame:
     # idはフロントエンドで使わないため表示しない。
     df = df.drop(columns=["id"])
     # バックエンドはUTCで記録している(datetime.now(timezone.utc))ため、表示はJSTに変換する。
-    df["recorded_at"] = pd.to_datetime(df["recorded_at"]).dt.tz_convert("Asia/Tokyo")
+    # 旧データと MQTT 経由のデータでは小数秒の有無が異なる。
+    df["recorded_at"] = pd.to_datetime(df["recorded_at"], format="ISO8601", utc=True).dt.tz_convert("Asia/Tokyo")
     return df.sort_values("recorded_at")
 
 
@@ -271,9 +272,6 @@ def render_dashboard() -> None:
         ),
         use_container_width=True,
     )
-
-    with st.expander("データ表を表示"):
-        st.dataframe(df.sort_values("recorded_at", ascending=False), use_container_width=True)
 
 
 render_dashboard()
