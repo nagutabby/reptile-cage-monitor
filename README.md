@@ -5,7 +5,7 @@
 | 部分 | 役割 |
 | --- | --- |
 | `backend/` | Render 上の FastAPI。IoT Core の HTTP ルールから測定値・制御状態を受け、Cloudflare D1 に保存し、異常値を LINE 通知 |
-| `frontend/` | Streamlit。Cognito でログインし、IoT Core MQTT over WebSocket でライブ値を表示。履歴は FastAPI から取得 |
+| `frontend/` | Streamlit。ログインなしで FastAPI の最新値・履歴を閲覧可能。Cognito ログイン中は IoT Core MQTT over WebSocket でライブ値を表示 |
 | `schema.sql` / `migrations/001_mqtt.sql` | 新規 D1 データベース用 / 既存 D1 データベースの MQTT 移行用 SQL |
 
 ## セットアップ

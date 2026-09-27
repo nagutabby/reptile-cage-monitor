@@ -1,4 +1,4 @@
-"""MQTT/WSS の最新値と、FastAPI/D1 の履歴を表示する Streamlit ダッシュボード。"""
+"""ログイン時の MQTT ライブ値と、誰でも閲覧できる FastAPI/D1 の履歴を表示する。"""
 
 import json
 import os
@@ -54,13 +54,7 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-if not st.user.is_logged_in:
-    st.title(PAGE_TITLE)
-    if st.button("ログイン"):
-        st.login("cognito")
-    st.stop()
-
-if int(st.user.get("exp", 0)) <= datetime.now(timezone.utc).timestamp():
+if st.user.is_logged_in and int(st.user.get("exp", 0)) <= datetime.now(timezone.utc).timestamp():
     st.logout()
     st.stop()
 
@@ -217,11 +211,38 @@ def _device_state_label(is_on: bool | None) -> str:
     return "ON" if is_on else "OFF"
 
 
+@st.fragment(run_every=AUTO_REFRESH_SECONDS)
+def render_public_latest() -> None:
+    readings = fetch_readings(60)
+    state = fetch_device_state()
+    latest = readings.iloc[-1] if not readings.empty else None
+    columns = st.columns(4)
+    columns[0].metric("最新温度", f"{latest['temp_c']:.1f} ℃" if latest is not None else "-- ℃")
+    columns[1].metric("最新湿度", f"{latest['humidity']:.0f} %" if latest is not None else "-- %")
+    columns[2].metric("ライト", _device_state_label(state["is_light_on"]))
+    columns[3].metric("パネルヒーター", _device_state_label(state["is_heater_on"]))
+    if latest is not None:
+        st.caption(f"温湿度: {latest['recorded_at'].strftime('%Y-%m-%d %H:%M:%S')}（1分ごとに更新）")
+    else:
+        st.caption("温湿度: 直近1時間のデータがありません。")
+
+
+with st.container(border=True):
+    header_label, header_action = st.columns([5, 1], vertical_alignment="center")
+    header_label.caption("閲覧モード · ログイン中" if st.user.is_logged_in else "閲覧モード · 誰でも閲覧できます")
+    if st.user.is_logged_in:
+        if header_action.button("ログアウト", use_container_width=True):
+            st.session_state.pop("iot_credentials", None)
+            st.logout()
+    elif header_action.button("ログイン", use_container_width=True):
+        st.login("cognito")
+
 st.title(PAGE_TITLE)
-st.caption("最新値は MQTT で更新され、履歴グラフは1分ごとに更新されます。")
-if st.button("ログアウト"):
-    st.logout()
-render_live()
+st.caption("最新値はログイン中に MQTT、それ以外は1分ごとに更新されます。履歴グラフも1分ごとに更新されます。")
+if st.user.is_logged_in:
+    render_live()
+else:
+    render_public_latest()
 
 if "range_label" not in st.session_state:
     st.session_state.range_label = DEFAULT_RANGE_LABEL
