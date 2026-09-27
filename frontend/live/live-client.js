@@ -38,6 +38,34 @@ export async function signedUrl(config) {
 
 export async function start(config) {
   const setText = (id, value) => { document.getElementById(id).textContent = value; };
+  const shadowBase = "$aws/things/reptile-controller/shadow";
+  const warning = document.getElementById("sync-warning");
+  let shadowVersion = -1;
+  let shadowSnapshot;
+  function showWarning(message) {
+    warning.hidden = !message;
+    warning.textContent = message || "";
+  }
+  function checkShadow() {
+    if (!shadowSnapshot) return;
+    const { state = {}, metadata = {} } = shadowSnapshot;
+    const desired = state.desired || {};
+    const reported = state.reported || {};
+    const problems = [];
+    for (const [key, label] of [["is_light_on", "ライト"], ["is_heater_on", "パネルヒーター"]]) {
+      if (typeof desired[key] !== "boolean") {
+        problems.push(`${label}のdesiredが未設定`);
+      } else if (typeof reported[key] !== "boolean" || desired[key] !== reported[key]) {
+        problems.push(`${label}がdesiredと同期していません`);
+      }
+    }
+    const reportedTimes = ["is_light_on", "is_heater_on"].map((key) => metadata.reported?.[key]?.timestamp);
+    if (reportedTimes.some((value) => !Number.isFinite(value)) ||
+        Date.now() / 1000 - Math.min(...reportedTimes) > 180) {
+      problems.push("コントローラーからの状態報告が3分以上ありません");
+    }
+    showWarning(problems.length ? `状態同期の警告: ${problems.join(" / ")}` : "");
+  }
   const identityClient = new CognitoIdentityClient({ region: config.region });
   let identityId;
   let client;
@@ -69,11 +97,24 @@ export async function start(config) {
       });
       client.on("connect", () => {
         client.subscribe(["reptile/cage/telemetry", "reptile/cage/state"], { qos: 1 });
+        client.subscribe([`${shadowBase}/get/accepted`, `${shadowBase}/get/rejected`, `${shadowBase}/update/documents`], { qos: 1 }, (error) => {
+          if (error) { showWarning("状態同期の警告: Shadowの購読に失敗しました"); return; }
+          client.publish(`${shadowBase}/get`, "");
+        });
       });
       client.on("message", (topic, bytes) => {
         try {
           const data = JSON.parse(bytes.toString());
-          if (topic.endsWith("/telemetry")) {
+          if (topic === `${shadowBase}/get/rejected`) {
+            showWarning("状態同期の警告: Shadowの状態を取得できません");
+          } else if (topic === `${shadowBase}/get/accepted` || topic === `${shadowBase}/update/documents`) {
+            const snapshot = data.current || data;
+            if (Number.isInteger(snapshot.version) && snapshot.version >= shadowVersion) {
+              shadowVersion = snapshot.version;
+              shadowSnapshot = snapshot;
+              checkShadow();
+            }
+          } else if (topic.endsWith("/telemetry")) {
             const age = Date.now() - Date.parse(data.observed_at);
             if (!Number.isFinite(age) || age < 0 || age > 120000) return;
             setText("temperature", `${Number(data.temp_c).toFixed(1)} ℃`);
@@ -88,15 +129,18 @@ export async function start(config) {
         }
       });
       client.on("close", () => {
+        showWarning("状態同期の警告: AWS IoT Coreへの接続が切れています");
         if (!stopped) setTimeout(connect, 5000);
       });
       client.on("error", (error) => console.warn("MQTT error", error));
     } catch (error) {
+      showWarning("状態同期の警告: AWS IoT Coreに接続できません");
       console.warn("IoT connection error", error);
       if (!stopped) setTimeout(connect, 5000);
     }
   }
 
   window.addEventListener("beforeunload", () => { stopped = true; client?.end(true); });
+  setInterval(checkShadow, 30000);
   await connect();
 }

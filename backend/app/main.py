@@ -5,7 +5,7 @@ from datetime import datetime, timedelta, timezone
 import anyio.to_thread
 from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request
 
-from . import alerts, config, d1
+from . import alerts, config, d1, sync_alerts
 from .schemas import DeviceStateOut, IoTStateIn, IoTTelemetryIn, ReadingIn, ReadingOut
 from .time_format import utc_seconds
 
@@ -66,6 +66,7 @@ def ingest_telemetry(reading: IoTTelemetryIn) -> dict:
     )
     if inserted:
         alerts.evaluate_and_notify(environment)
+        sync_alerts.evaluate_and_notify()
     return {"status": "ok", "inserted": bool(inserted)}
 
 
@@ -81,6 +82,38 @@ def ingest_state(state: IoTStateIn) -> dict:
         [state.is_light_on, state.is_heater_on, reported_at, state.event_id],
     )
     return {"status": "ok"}
+
+
+@app.post("/api/iot/shadow", dependencies=[Depends(verify_iot_key)])
+def ingest_shadow(document: dict) -> dict:
+    current = document.get("current", {})
+    state = current.get("state", {})
+    desired = state.get("desired", {})
+    reported = state.get("reported", {})
+    version = current.get("version")
+    timestamp = document.get("timestamp")
+    if not isinstance(version, int) or not isinstance(timestamp, int):
+        raise HTTPException(status_code=422, detail="invalid shadow document")
+    values = [desired.get("is_light_on"), desired.get("is_heater_on"),
+              reported.get("is_light_on"), reported.get("is_heater_on")]
+    if any(value is not None and not isinstance(value, bool) for value in values):
+        raise HTTPException(status_code=422, detail="invalid shadow state")
+    updated_at = utc_seconds(datetime.fromtimestamp(timestamp, timezone.utc))
+    d1.query(
+        "INSERT INTO shadow_state (id, version, desired_light, desired_heater, reported_light, reported_heater, updated_at) "
+        "VALUES (1, ?, ?, ?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET "
+        "version = excluded.version, desired_light = excluded.desired_light, desired_heater = excluded.desired_heater, "
+        "reported_light = excluded.reported_light, reported_heater = excluded.reported_heater, "
+        "updated_at = excluded.updated_at WHERE excluded.version > shadow_state.version",
+        [version, *values, updated_at],
+    )
+    sync_alerts.evaluate_and_notify()
+    return {"status": "ok"}
+
+
+@app.post("/api/iot/check-sync", dependencies=[Depends(verify_iot_key)])
+def check_shadow_sync() -> dict:
+    return {"problems": sync_alerts.evaluate_and_notify()}
 
 
 @app.post("/api/iot")

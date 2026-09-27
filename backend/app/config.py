@@ -23,3 +23,4 @@ HUMIDITY_MIN = 40.0
 HUMIDITY_MAX = 90.0
 
 ALERT_RESEND_INTERVAL_SEC = 60 * 60  # 異常が続いている間の再通知間隔(秒)
+SHADOW_STALE_SECONDS = 3 * 60  # コントローラーは1分ごとにShadowを更新する

@@ -85,16 +85,23 @@ def render_live() -> None:
         .label { color: #c8b7a6; font-size: 13px; }
         .value { font-size: 26px; margin-top: 7px; }
         .status { color: #c8b7a6; font-size: 12px; margin-top: 10px; }
-        @media(max-width:600px) { .grid { grid-template-columns: repeat(2, minmax(0,1fr)); } }
+        .sync-warning { color: #f7d7a1; background: #4a3020; border: 1px solid #a87537;
+                        border-radius: 8px; padding: 8px 12px; margin-top: 8px; font-size: 13px; }
+        @media(max-width:600px) {
+            .grid { grid-template-columns: repeat(2, minmax(0,1fr)); }
+            .card { padding: 10px; }
+            .value { font-size: 22px; }
+        }
         </style><div class="grid">
         <div class="card"><div class="label">最新温度</div><div class="value" id="temperature">-- ℃</div></div>
         <div class="card"><div class="label">最新湿度</div><div class="value" id="humidity">-- %</div></div>
         <div class="card"><div class="label">ライト</div><div class="value" id="light">不明</div></div>
         <div class="card"><div class="label">パネルヒーター</div><div class="value" id="heater">不明</div></div>
-        </div><div class="status" id="updated">AWS IoT Coreと最後に同期した時刻: --</div><script>"""
+        </div><div class="status" id="updated">AWS IoT Coreと最後に同期した時刻: --</div>
+        <div class="sync-warning" id="sync-warning" role="alert" hidden></div><script>"""
         + bundle.replace("</script", "<\\/script")
         + f"\nReptileLive.start({safe_config});</script>",
-        height=150,
+        height=230,
         scrolling=False,
     )
 
