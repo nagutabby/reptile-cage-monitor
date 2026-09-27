@@ -215,7 +215,7 @@ class ReptileIotStack(Stack):
                     actions=[iot.CfnTopicRule.ActionProperty(
                         http=iot.CfnTopicRule.HttpActionProperty(
                             url=f"{backend}/api/iot/{endpoint}",
-                            confirmation_url=f"{backend}/api/iot/confirm",
+                            confirmation_url=f"{backend}/api/iot",
                             headers=[iot.CfnTopicRule.HttpActionHeaderProperty(
                                 key="X-IoT-Key", value=key_header
                             )],

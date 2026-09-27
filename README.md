@@ -39,7 +39,7 @@ openssl req -new -key devices/controller.key -subj /CN=reptile-controller -out d
 
 デプロイ後は stack outputs の証明書 ARN に対応する certificate ID で `aws iot describe-certificate` を呼び、各 PEM を取得します。Amazon Root CA 1、秘密鍵、証明書、IoT endpoint を [AtomS3 側](../atoms3-reptile-cage/) の機器別設定に格納します。
 
-Secrets Manager の `IngestSecretArn` にある `key` を Render の `IOT_INGEST_KEY` に設定します。IoT HTTP destination の確認トークンは FastAPI の `/api/iot/confirm` が Render のログに出力するので、確認後に `aws iot confirm-topic-rule-destination` を実行します。Render への HTTPS 接続とルールの送信結果を確認してください。
+Secrets Manager の `IngestSecretArn` にある `key` を Render の `IOT_INGEST_KEY` に設定します。IoT HTTP destination の確認トークンは FastAPI の `/api/iot` が Render のログに出力するので、確認後に `aws iot confirm-topic-rule-destination` と `aws iot update-topic-rule-destination --status ENABLED` を実行します。Render への HTTPS 接続とルールの送信結果を確認してください。
 
 Cognito app client の secret、User Pool ID、`SessionUrl` を [Streamlit 側](../reptile-monitor/frontend/.streamlit/secrets.toml.example) に設定し、閲覧者アカウントを作成します。これらの実値や機器秘密鍵を Git に push しないでください。
 
