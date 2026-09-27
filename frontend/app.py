@@ -91,7 +91,7 @@ def render_live() -> None:
         <div class="card"><div class="label">最新湿度</div><div class="value" id="humidity">-- %</div></div>
         <div class="card"><div class="label">ライト</div><div class="value" id="light">不明</div></div>
         <div class="card"><div class="label">パネルヒーター</div><div class="value" id="heater">不明</div></div>
-        </div><div class="status"><span id="connection">接続準備中</span> · <span id="updated">温湿度: --</span></div><script>"""
+        </div><div class="status" id="updated">AWS IoT Coreと最後に同期した時刻: --</div><script>"""
         + bundle.replace("</script", "<\\/script")
         + f"\nReptileLive.start({safe_config});</script>",
         height=150,
@@ -181,14 +181,14 @@ def line_chart_with_thresholds(
     return (line + rules + labels).properties(height=280)
 
 
-with st.container(border=True):
-    header_label, header_action = st.columns([5, 1], vertical_alignment="center")
-    header_label.caption("閲覧モード · ログイン中" if st.user.is_logged_in else "閲覧モード · 誰でも閲覧できます")
-    if st.user.is_logged_in:
-        if header_action.button("ログアウト", use_container_width=True):
-            st.logout()
-    elif header_action.button("ログイン", use_container_width=True):
-        st.login("cognito")
+with st.container(horizontal=True, horizontal_alignment="right"):
+    with st.container(border=True, width="content", horizontal=True, vertical_alignment="center"):
+        st.caption("閲覧モード · ログイン中" if st.user.is_logged_in else "閲覧モード · 誰でも閲覧できます")
+        if st.user.is_logged_in:
+            if st.button("ログアウト"):
+                st.logout()
+        elif st.button("ログイン"):
+            st.login("cognito")
 
 st.title(PAGE_TITLE)
 st.caption("最新値は MQTT で更新され、履歴グラフは1分ごとに更新されます。")

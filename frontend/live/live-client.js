@@ -68,7 +68,6 @@ export async function start(config) {
         connectTimeout: 10000,
       });
       client.on("connect", () => {
-        setText("connection", "AWS IoT Core に接続中");
         client.subscribe(["reptile/cage/telemetry", "reptile/cage/state"], { qos: 1 });
       });
       client.on("message", (topic, bytes) => {
@@ -79,7 +78,7 @@ export async function start(config) {
             if (!Number.isFinite(age) || age < 0 || age > 120000) return;
             setText("temperature", `${Number(data.temp_c).toFixed(1)} ℃`);
             setText("humidity", `${Number(data.humidity).toFixed(0)} %`);
-            setText("updated", `温湿度: ${new Date(data.observed_at).toLocaleString("ja-JP", { timeZone: "Asia/Tokyo" })}`);
+            setText("updated", `AWS IoT Coreと最後に同期した時刻: ${new Date(data.observed_at).toLocaleString("ja-JP", { timeZone: "Asia/Tokyo" })}`);
           } else if (topic.endsWith("/state")) {
             setText("light", data.is_light_on ? "ON" : "OFF");
             setText("heater", data.is_heater_on ? "ON" : "OFF");
@@ -89,12 +88,10 @@ export async function start(config) {
         }
       });
       client.on("close", () => {
-        setText("connection", "再接続中");
         if (!stopped) setTimeout(connect, 5000);
       });
       client.on("error", (error) => console.warn("MQTT error", error));
     } catch (error) {
-      setText("connection", "接続に失敗しました");
       console.warn("IoT connection error", error);
       if (!stopped) setTimeout(connect, 5000);
     }
