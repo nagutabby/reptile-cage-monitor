@@ -1,4 +1,4 @@
-"""IoT devices, read-only browser sessions, and MQTT-to-HTTPS archival."""
+"""IoT devices, cloud-owned desired state, and MQTT-to-HTTPS archival."""
 
 from pathlib import Path
 
@@ -7,12 +7,14 @@ from aws_cdk import aws_apigatewayv2 as apigw
 from aws_cdk import aws_apigatewayv2_authorizers as authorizers
 from aws_cdk import aws_apigatewayv2_integrations as integrations
 from aws_cdk import aws_cognito as cognito
+from aws_cdk import aws_cloudwatch as cloudwatch
 from aws_cdk import aws_events as events
 from aws_cdk import aws_events_targets as targets
 from aws_cdk import aws_iam as iam
 from aws_cdk import aws_iot as iot
 from aws_cdk import aws_lambda as lambda_
 from aws_cdk import aws_s3 as s3
+from aws_cdk import aws_scheduler as scheduler
 from aws_cdk import aws_secretsmanager as secretsmanager
 from constructs import Construct
 
@@ -168,16 +170,73 @@ class ReptileIotStack(Stack):
             resources=["*"],
         ))
         api = apigw.HttpApi(self, "ViewerSessionApi")
+        viewer_authorizer = authorizers.HttpJwtAuthorizer(
+            "ViewerJwt",
+            f"https://cognito-idp.{self.region}.amazonaws.com/{user_pool.user_pool_id}",
+            jwt_audience=[user_client.user_pool_client_id],
+        )
         api.add_routes(
             path="/session",
             methods=[apigw.HttpMethod.POST],
             integration=integrations.HttpLambdaIntegration("SessionIntegration", session_function),
-            authorizer=authorizers.HttpJwtAuthorizer(
-                "ViewerJwt",
-                f"https://cognito-idp.{self.region}.amazonaws.com/{user_pool.user_pool_id}",
-                jwt_audience=[user_client.user_pool_client_id],
-            ),
+            authorizer=viewer_authorizer,
         )
+
+        def control_function(construct_id: str, handler: str) -> lambda_.Function:
+            function = lambda_.Function(
+                self, construct_id,
+                runtime=lambda_.Runtime.PYTHON_3_12,
+                handler=f"shadow_control.{handler}",
+                code=lambda_.Code.from_asset(str(Path(__file__).parent / "lambda")),
+                timeout=Duration.seconds(20),
+                environment={"IOT_ENDPOINT": iot_endpoint},
+            )
+            function.add_to_role_policy(iam.PolicyStatement(
+                actions=["iot:GetThingShadow", "iot:UpdateThingShadow"],
+                resources=[topic_arn("thing", "reptile-controller")],
+            ))
+            cloudwatch.Alarm(
+                self, f"{construct_id}Failures", metric=function.metric_errors(),
+                threshold=1, evaluation_periods=1,
+            )
+            return function
+
+        heater_control = control_function("HeaterControl", "heater_handler")
+        heater_control.add_to_role_policy(iam.PolicyStatement(
+            actions=["iot:GetRetainedMessage"],
+            resources=[topic_arn("topic", TELEMETRY_TOPIC)],
+        ))
+        events.Rule(
+            self, "HeaterControlSchedule", schedule=events.Schedule.rate(Duration.minutes(1)),
+            targets=[targets.LambdaFunction(heater_control)],
+        )
+
+        light_control = control_function("LightControl", "light_control_handler")
+        api.add_routes(
+            path="/control/light", methods=[apigw.HttpMethod.POST],
+            integration=integrations.HttpLambdaIntegration("LightControlIntegration", light_control),
+            authorizer=viewer_authorizer,
+        )
+        light_schedule = control_function("LightSchedule", "light_schedule_handler")
+        schedule_role = iam.Role(
+            self, "LightScheduleRole", assumed_by=iam.ServicePrincipal("scheduler.amazonaws.com")
+        )
+        light_schedule.grant_invoke(schedule_role)
+        for hour in (7, 19):
+            scheduler.CfnSchedule(
+                self, f"LightAt{hour}",
+                schedule_expression=f"cron(0 {hour} * * ? *)",
+                schedule_expression_timezone="Asia/Tokyo",
+                flexible_time_window=scheduler.CfnSchedule.FlexibleTimeWindowProperty(mode="OFF"),
+                target=scheduler.CfnSchedule.TargetProperty(
+                    arn=light_schedule.function_arn,
+                    role_arn=schedule_role.role_arn,
+                    input=f'{{"hour":{hour}}}',
+                    retry_policy=scheduler.CfnSchedule.RetryPolicyProperty(
+                        maximum_event_age_in_seconds=300, maximum_retry_attempts=3,
+                    ),
+                ),
+            )
 
         sensor_policy = iot.CfnPolicy(self, "SensorPolicy", policy_document={
             "Version": "2012-10-17", "Statement": [
@@ -189,12 +248,21 @@ class ReptileIotStack(Stack):
         controller_policy = iot.CfnPolicy(self, "ControllerPolicy", policy_document={
             "Version": "2012-10-17", "Statement": [
                 {"Effect": "Allow", "Action": "iot:Connect", "Resource": topic_arn("client", "reptile-controller")},
-                {"Effect": "Allow", "Action": "iot:Subscribe", "Resource": topic_arn("topicfilter", TELEMETRY_TOPIC)},
-                {"Effect": "Allow", "Action": "iot:Receive", "Resource": topic_arn("topic", TELEMETRY_TOPIC)},
+                {"Effect": "Allow", "Action": "iot:Subscribe", "Resource": [
+                    topic_arn("topicfilter", f"{SHADOW_TOPIC}/get/accepted"),
+                    topic_arn("topicfilter", f"{SHADOW_TOPIC}/get/rejected"),
+                    topic_arn("topicfilter", f"{SHADOW_TOPIC}/update/delta"),
+                ]},
+                {"Effect": "Allow", "Action": "iot:Receive", "Resource": [
+                    topic_arn("topic", f"{SHADOW_TOPIC}/get/accepted"),
+                    topic_arn("topic", f"{SHADOW_TOPIC}/get/rejected"),
+                    topic_arn("topic", f"{SHADOW_TOPIC}/update/delta"),
+                ]},
                 {"Effect": "Allow", "Action": ["iot:Publish", "iot:RetainPublish"],
                  "Resource": topic_arn("topic", STATE_TOPIC)},
                 {"Effect": "Allow", "Action": "iot:Publish",
-                 "Resource": topic_arn("topic", f"{SHADOW_TOPIC}/update")},
+                 "Resource": [topic_arn("topic", f"{SHADOW_TOPIC}/update"),
+                              topic_arn("topic", f"{SHADOW_TOPIC}/get")]},
             ],
         })
         for name, policy in (("Sensor", sensor_policy), ("Controller", controller_policy)):
@@ -290,5 +358,6 @@ class ReptileIotStack(Stack):
         CfnOutput(self, "IdentityPoolId", value=identity_pool.ref)
         CfnOutput(self, "CognitoDomain", value=f"{cognito_domain_prefix}.auth.{self.region}.amazoncognito.com")
         CfnOutput(self, "SessionUrl", value=f"{api.api_endpoint}/session")
+        CfnOutput(self, "LightControlUrl", value=f"{api.api_endpoint}/control/light")
         CfnOutput(self, "IngestSecretArn", value=ingest_secret.secret_arn)
         CfnOutput(self, "FailureBucket", value=failures.bucket_name)

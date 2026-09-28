@@ -2,7 +2,9 @@
 
 ヒョウモントカゲモドキのケージ用 AWS リソースを管理する、独立した **Python AWS CDK** リポジトリです。CDK コードを push するだけでは AWS リソースは作成されません。デプロイは運用者が明示的に行います。
 
-東京リージョンに、M5Stack 2 台の IoT Thing・証明書・個別 MQTT ポリシー、Cognito 閲覧者ログインと未ログイン閲覧用 Identity Pool ロール、WebSocket 用の一時認証情報 API、IoT Core から既存 FastAPI への HTTP ルール、ingest key とエラー保存先を定義します。Web 閲覧者には telemetry/state とコントローラー Shadow の受信権限、Shadow 取得要求の送信権限を与えます。Shadow の更新停止を検出する Lambda は5分ごとにバックエンドを呼びます。
+東京リージョンに、M5Stack 2 台の IoT Thing・証明書・個別 MQTT ポリシー、Cognito 閲覧者ログインと未ログイン閲覧用 Identity Pool ロール、WebSocket 用の一時認証情報 API、IoT Core から既存 FastAPI への HTTP ルール、ingest key とエラー保存先を定義します。Web 閲覧者には telemetry/state とコントローラー Shadow の受信権限、Shadow 取得要求の送信権限を与えます。Lambda が温度と時刻に応じて Shadow の `desired` を更新し、認証済み API からライトだけを手動切替できます。Shadow の更新停止を検出する Lambda は5分ごとにバックエンドを呼びます。
+
+ヒーター Lambda は1分ごとに retained 温度を確認し、32°C 未満なら ON、以上なら OFF を指示します。温度が3分以上届かない場合は ON を指示します。ライトは JST 7:00 に ON、19:00 に OFF を指示します。手動切替は次の時刻イベントまで有効です。新しい Shadow が空の場合、ヒーター Lambda が現在の時間帯に合わせてライトの初期値も設定します。
 
 ## ローカルでの確認
 
@@ -42,10 +44,11 @@ openssl req -new -key devices/controller.key -subj /CN=reptile-controller -out d
 Secrets Manager の `IngestSecretArn` にある `key` を Render の `IOT_INGEST_KEY` に設定します。IoT HTTP destination の確認トークンは FastAPI の `/api/iot` が Render のログに出力するので、確認後に `aws iot confirm-topic-rule-destination` と `aws iot update-topic-rule-destination --status ENABLED` を実行します。Render への HTTPS 接続とルールの送信結果を確認してください。
 
 Cognito app client の secret と User Pool ID を [Streamlit 側](../reptile-monitor/frontend/.streamlit/secrets.toml.example) に設定します。閲覧用 MQTT は未ログインでもゲスト Identity Pool ロールで購読できます。閲覧者アカウントは CDK が作成します。client secret や機器秘密鍵を Git に push しないでください。
+Stack output の `LightControlUrl` を Streamlit の `LIGHT_CONTROL_URL` に設定します。CDK を先にデプロイし、Shadow の `desired` が Lambda で更新されることを確認してからコントローラーに新しいファームウェアを書き込みます。CDK デプロイだけでは実機の制御経路は切り替わりません。
 
 ## 月額コストの事前見積もり
 
-2026-09-28 時点。東京リージョン、温湿度と Shadow を各1分ごと、状態を1日4件、定期チェックを5分ごと、Web を1日1時間閲覧、30日稼働と仮定します。以前の構成の概算 **$0.75/月** に対し、Shadow 約43,200更新/月の操作・メッセージ・ルール、追加の Secrets Manager 呼び出し、定期チェック約8,640回/月を加えると、全体で概ね **$1.2/月** と見込みます。Lambda はこの小規模利用では無料枠内を想定します。未ログイン閲覧の同時接続数、AWS の無料枠の共有状況、実際のメッセージサイズ、失敗時のリトライにより変動します。アカウント全体の3 USD予算に対して余裕はありますが、予算は利用を停止しません。
+2026-09-28 時点の旧構成は、Shadow を毎分更新する場合の概算 **$1.2/月** でした。新構成はヒーター制御 Lambda と retained メッセージ取得を毎分実行するため、料金を再見積もりしてからデプロイしてください。Shadow の更新は目標値が変わった時だけ行います。アカウント全体の3 USD予算は利用を停止しません。
 
 AWS Budgets には、ユーザー指定により AWS CLI でアカウント全体の月額 **3 USD** 予算 `monthly-3-usd-alert` を別途作成済みです。実績 80%・100% と予測 100% で `nagutabby@nagutabby.uk` に通知します。予算は課金を停止しません。デプロイ後は Cost Explorer の実績と照合します。
 
