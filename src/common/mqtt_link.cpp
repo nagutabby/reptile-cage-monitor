@@ -19,7 +19,8 @@ void MqttLink::begin() {
     secureClient_.setCertificate(IOT_DEVICE_CERT);
     secureClient_.setPrivateKey(IOT_PRIVATE_KEY);
     client_.setServer(IOT_ENDPOINT, 8883);
-    client_.setBufferSize(512);
+    // Shadow get/accepted includes desired, reported, and metadata.
+    client_.setBufferSize(1536);
     client_.setKeepAlive(60);
     WiFi.mode(WIFI_STA);
     WiFi.begin(WIFI_SSID, WIFI_PASSWORD);

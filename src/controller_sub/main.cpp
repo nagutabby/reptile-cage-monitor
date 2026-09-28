@@ -4,15 +4,17 @@
 #include <time.h>
 #include <sys/time.h>
 
-#include "control_logic.h"
 #include "mqtt_link.h"
 #include "switchbot_ble.h"
 
 namespace {
 constexpr char CLIENT_ID[] = "reptile-controller";
-constexpr char TELEMETRY_TOPIC[] = "reptile/cage/telemetry";
 constexpr char STATE_TOPIC[] = "reptile/cage/state";
 constexpr char SHADOW_UPDATE_TOPIC[] = "$aws/things/reptile-controller/shadow/update";
+constexpr char SHADOW_GET_TOPIC[] = "$aws/things/reptile-controller/shadow/get";
+constexpr char SHADOW_GET_ACCEPTED_TOPIC[] = "$aws/things/reptile-controller/shadow/get/accepted";
+constexpr char SHADOW_GET_REJECTED_TOPIC[] = "$aws/things/reptile-controller/shadow/get/rejected";
+constexpr char SHADOW_DELTA_TOPIC[] = "$aws/things/reptile-controller/shadow/update/delta";
 constexpr char UVB_MAC[] = "70:af:09:17:2a:d2";
 constexpr char HEATER_MAC[] = "ac:27:6e:40:5a:a2";
 MqttLink mqtt(CLIENT_ID);
@@ -21,30 +23,41 @@ bool heaterOn = false;
 bool lightKnown = false;
 bool heaterKnown = false;
 bool stateDirty = true;
-bool pendingTemperature = false;
 bool desiredLightOn = false;
 bool desiredHeaterOn = false;
-float latestTemperature = 0;
+bool desiredLightKnown = false;
+bool desiredHeaterKnown = false;
+uint32_t shadowVersion = 0;
 uint32_t bootId;
 uint32_t sequence = 0;
 uint32_t nextCheckMs = 0;
 uint32_t nextShadowMs = 0;
+uint32_t nextShadowGetMs = 0;
+uint32_t nextLightTryMs = 0;
+uint32_t nextHeaterTryMs = 0;
 
 void onMessage(char* topic, byte* payload, unsigned int length) {
-    if (strcmp(topic, TELEMETRY_TOPIC) != 0 || length >= 256) return;
-    StaticJsonDocument<256> doc;
+    if (strcmp(topic, SHADOW_GET_REJECTED_TOPIC) == 0) {
+        Serial.println("[Shadow] get rejected");
+        return;
+    }
+    if (strcmp(topic, SHADOW_GET_ACCEPTED_TOPIC) != 0 && strcmp(topic, SHADOW_DELTA_TOPIC) != 0) return;
+    StaticJsonDocument<1536> doc;
     if (deserializeJson(doc, payload, length)) return;
-    const char* observed = doc["observed_at"];
-    if (!observed || !doc["temp_c"].is<float>()) return;
-    struct tm sample = {};
-    if (!strptime(observed, "%Y-%m-%dT%H:%M:%SZ", &sample)) return;
-    sample.tm_isdst = 0;
-    time_t sampleTime = mktime(&sample);
-    time_t now = time(nullptr);
-    // A retained message can be delivered after a long disconnection.
-    if (now < sampleTime || now - sampleTime > 120) return;
-    latestTemperature = doc["temp_c"].as<float>();
-    pendingTemperature = true;
+    uint32_t version = doc["version"] | 0;
+    if (version == 0) return;
+    if (version < shadowVersion) return;
+    shadowVersion = version;
+    JsonObject desired = doc["state"]["desired"];
+    if (desired.isNull()) return;
+    if (desired["is_light_on"].is<bool>()) {
+        desiredLightOn = desired["is_light_on"].as<bool>();
+        desiredLightKnown = true;
+    }
+    if (desired["is_heater_on"].is<bool>()) {
+        desiredHeaterOn = desired["is_heater_on"].as<bool>();
+        desiredHeaterKnown = true;
+    }
 }
 
 void checkPlugStates() {
@@ -61,35 +74,19 @@ void checkPlugStates() {
     }
 }
 
-void applyLightSchedule() {
-    if (!lightKnown) return;
-    time_t now = time(nullptr);
-    if (now < 1700000000) return;
-    struct tm local;
-    gmtime_r(&now, &local);
-    int jstHour = (local.tm_hour + 9) % 24;
-    local.tm_hour = jstHour;
-    desiredLightOn = ControlLogic::computeDesiredLightOn(local, 7, 19);
-    if (desiredLightOn == lightOn) return;
-    bool ok = desiredLightOn ? SwitchBotBLE::plugTurnOn(UVB_MAC) : SwitchBotBLE::plugTurnOff(UVB_MAC);
-    if (ok) {
-        lightOn = desiredLightOn;
-        stateDirty = true;
-        Serial.printf("[Light] %s\n", desiredLightOn ? "ON" : "OFF");
+void applyDesired(uint32_t nowMs) {
+    if (!mqtt.connected()) return;
+    if (desiredLightKnown && lightKnown && desiredLightOn != lightOn &&
+        (int32_t)(nowMs - nextLightTryMs) >= 0) {
+        nextLightTryMs = nowMs + 15000;
+        bool ok = desiredLightOn ? SwitchBotBLE::plugTurnOn(UVB_MAC) : SwitchBotBLE::plugTurnOff(UVB_MAC);
+        if (ok) checkPlugStates();
     }
-}
-
-void applyTemperature() {
-    if (!pendingTemperature) return;
-    if (!heaterKnown) return;
-    pendingTemperature = false;
-    desiredHeaterOn = ControlLogic::computeDesiredHeaterOn(latestTemperature, 32.0f);
-    if (desiredHeaterOn == heaterOn) return;
-    bool ok = desiredHeaterOn ? SwitchBotBLE::plugTurnOn(HEATER_MAC) : SwitchBotBLE::plugTurnOff(HEATER_MAC);
-    if (ok) {
-        heaterOn = desiredHeaterOn;
-        stateDirty = true;
-        Serial.printf("[Heater] %s\n", desiredHeaterOn ? "ON" : "OFF");
+    if (desiredHeaterKnown && heaterKnown && desiredHeaterOn != heaterOn &&
+        (int32_t)(nowMs - nextHeaterTryMs) >= 0) {
+        nextHeaterTryMs = nowMs + 15000;
+        bool ok = desiredHeaterOn ? SwitchBotBLE::plugTurnOn(HEATER_MAC) : SwitchBotBLE::plugTurnOff(HEATER_MAC);
+        if (ok) checkPlugStates();
     }
 }
 
@@ -122,9 +119,6 @@ void reportShadow(uint32_t nowMs) {
     if ((int32_t)(nowMs - nextShadowMs) < 0) return;
     StaticJsonDocument<256> doc;
     JsonObject state = doc.createNestedObject("state");
-    JsonObject desired = state.createNestedObject("desired");
-    desired["is_light_on"] = desiredLightOn;
-    desired["is_heater_on"] = desiredHeaterOn;
     JsonObject reported = state.createNestedObject("reported");
     reported["is_light_on"] = lightOn;
     reported["is_heater_on"] = heaterOn;
@@ -142,24 +136,32 @@ void setup() {
     mqtt.setCallback(onMessage);
     mqtt.begin();
     checkPlugStates();
-    desiredLightOn = lightOn;
-    desiredHeaterOn = heaterOn;
 }
 
 void loop() {
     M5.update();
     mqtt.loop();
     if (mqtt.consumeJustConnected()) {
-        mqtt.subscribe(TELEMETRY_TOPIC);
+        desiredLightKnown = false;
+        desiredHeaterKnown = false;
+        mqtt.subscribe(SHADOW_GET_ACCEPTED_TOPIC);
+        mqtt.subscribe(SHADOW_GET_REJECTED_TOPIC);
+        mqtt.subscribe(SHADOW_DELTA_TOPIC);
+        mqtt.publish(SHADOW_GET_TOPIC, "");
+        nextShadowGetMs = millis() + 15000;
         stateDirty = true;
     }
     uint32_t now = millis();
+    if (mqtt.connected() && (!desiredLightKnown || !desiredHeaterKnown) &&
+        (int32_t)(now - nextShadowGetMs) >= 0) {
+        mqtt.publish(SHADOW_GET_TOPIC, "");
+        nextShadowGetMs = now + 15000;
+    }
     if ((int32_t)(now - nextCheckMs) >= 0) {
         nextCheckMs = now + 60000;
         checkPlugStates();
-        applyLightSchedule();
     }
-    applyTemperature();
+    applyDesired(now);
     reportState();
     reportShadow(now);
     delay(10);
