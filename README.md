@@ -5,7 +5,7 @@
 | 部分 | 役割 |
 | --- | --- |
 | `backend/` | Render 上の FastAPI。IoT Core の HTTP ルールから測定値・制御状態・Shadow を受け、Cloudflare D1 に保存し、異常値と状態同期異常を LINE 通知 |
-| `frontend/` | Streamlit。ログイン状態に関係なく Cognito ゲスト認証情報で IoT Core MQTT over WebSocket のライブ値と Shadow 同期警告を表示。履歴は FastAPI から取得 |
+| `frontend/` | Streamlit。全員に MQTT のライブ値と Shadow 同期警告を表示し、ログイン済みユーザーにライトの手動切替を提供。履歴は FastAPI から取得 |
 | `schema.sql` / `migrations/` | 新規 D1 データベース用 / 既存 D1 データベースの段階的な移行用 SQL |
 
 ## セットアップ
@@ -13,7 +13,7 @@
 1. 既存の D1 データベースには `migrations/001_mqtt.sql`、`002_normalize_timestamps.sql`、`003_shadow_sync.sql` を番号順に `wrangler d1 execute reptile-monitor --remote --file <ファイル>` で適用します。新規 DB には `schema.sql` を使います。保存時刻は秒精度の UTC (`+00:00`) で統一します。
 2. Render の `render.yaml` で backend をデプロイし、D1 と LINE の既存設定を維持します。IoT Core の ingest key は CDK が Secrets Manager に作成するため、デプロイ後に取得して Render の `IOT_INGEST_KEY` に設定します。
 3. [reptile-iot-cdk](../reptile-iot-cdk/) を synth・deploy します。IoT HTTP destination の確認もその README に従います。
-4. Streamlit Community Cloud の secrets に `frontend/.streamlit/secrets.toml.example` にある FastAPI と Cognito の値を設定します。IoT の Identity Pool ID と endpoint は公開情報としてアプリに設定済みです。ログインを使う場合は Cognito に閲覧者を登録します。
+4. Streamlit Community Cloud の secrets に `frontend/.streamlit/secrets.toml.example` にある FastAPI と Cognito の値を設定します。IoT の Identity Pool ID・endpoint とライト操作 API の URL は公開情報としてアプリに設定済みです。ライト操作には Cognito ログインが必要です。別の AWS スタックを使う場合は `LIGHT_CONTROL_URL` を設定します。
 5. フロントエンドの MQTT bundle を更新する場合は `cd frontend/live && npm ci && npm run build` を実行し、生成した `live-client.bundle.js` をコミットします。
 
 Render の `API_KEY` は履歴 API 用で、`IOT_INGEST_KEY` は IoT Core の HTTP ルール専用です。M5Stack にどちらのキーも保存しません。

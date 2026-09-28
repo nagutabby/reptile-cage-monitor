@@ -71,6 +71,10 @@ IOT_PUBLIC_CONFIG = {
     "endpoint": "avwuqaukxpjz3-ats.iot.ap-northeast-1.amazonaws.com",
     "region": "ap-northeast-1",
 }
+LIGHT_CONTROL_URL = (
+    st.secrets["LIGHT_CONTROL_URL"] if "LIGHT_CONTROL_URL" in st.secrets
+    else os.getenv("LIGHT_CONTROL_URL", "https://s80xrp44yf.execute-api.ap-northeast-1.amazonaws.com/control/light")
+)
 
 
 def render_live() -> None:
@@ -95,8 +99,8 @@ def render_live() -> None:
         </style><div class="grid">
         <div class="card"><div class="label">最新温度</div><div class="value" id="temperature">-- ℃</div></div>
         <div class="card"><div class="label">最新湿度</div><div class="value" id="humidity">-- %</div></div>
-        <div class="card"><div class="label">ライト</div><div class="value" id="light">不明</div></div>
-        <div class="card"><div class="label">パネルヒーター</div><div class="value" id="heater">不明</div></div>
+        <div class="card"><div class="label">ライト</div><div class="value" id="light">不明</div><div class="status" id="desired-light">指示: --</div></div>
+        <div class="card"><div class="label">パネルヒーター</div><div class="value" id="heater">不明</div><div class="status" id="desired-heater">指示: --</div></div>
         </div><div class="status" id="updated">AWS IoT Coreと最後に同期した時刻: --</div>
         <div class="sync-warning" id="sync-warning" role="alert" hidden></div><script>"""
         + bundle.replace("</script", "<\\/script")
@@ -197,6 +201,33 @@ with st.container(horizontal=True, horizontal_alignment="right"):
 
 st.title(PAGE_TITLE)
 st.caption("最新値は MQTT で更新され、履歴グラフは1分ごとに更新されます。")
+if st.user.is_logged_in:
+    st.subheader("ライトの手動切替")
+    st.caption("手動で切り替えた状態は、次の7:00または19:00の自動切替まで続きます。")
+    on_col, off_col = st.columns(2)
+    requested_light = None
+    with on_col:
+        if st.button("ライトをONにする", use_container_width=True):
+            requested_light = True
+    with off_col:
+        if st.button("ライトをOFFにする", use_container_width=True):
+            requested_light = False
+    if requested_light is not None:
+        token = st.user.tokens.get("id")
+        if not LIGHT_CONTROL_URL or not token:
+            st.error("ライト操作の設定が不足しています。")
+        else:
+            try:
+                response = httpx.post(
+                    LIGHT_CONTROL_URL,
+                    headers={"Authorization": f"Bearer {token}"},
+                    json={"is_light_on": requested_light},
+                    timeout=10.0,
+                )
+                response.raise_for_status()
+                st.success("切替を指示しました。実際の状態は下の表示で確認してください。")
+            except httpx.HTTPError:
+                st.error("ライトの切替指示に失敗しました。時間をおいて再試行してください。")
 render_live()
 
 if "range_label" not in st.session_state:

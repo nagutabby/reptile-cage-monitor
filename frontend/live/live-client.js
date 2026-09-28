@@ -43,6 +43,7 @@ export async function start(config) {
   const updated = document.getElementById("updated");
   let shadowVersion = -1;
   let shadowSnapshot;
+  let lastTelemetryAt = 0;
   function showWarning(message) {
     warning.hidden = !message;
     warning.textContent = message || "";
@@ -53,6 +54,8 @@ export async function start(config) {
     const { state = {}, metadata = {} } = shadowSnapshot;
     const desired = state.desired || {};
     const reported = state.reported || {};
+    setText("desired-light", typeof desired.is_light_on === "boolean" ? `指示: ${desired.is_light_on ? "ON" : "OFF"}` : "指示: 未設定");
+    setText("desired-heater", typeof desired.is_heater_on === "boolean" ? `指示: ${desired.is_heater_on ? "ON" : "OFF"}` : "指示: 未設定");
     const problems = [];
     for (const [key, label] of [["is_light_on", "ライト"], ["is_heater_on", "パネルヒーター"]]) {
       if (typeof desired[key] !== "boolean") {
@@ -65,6 +68,9 @@ export async function start(config) {
     if (reportedTimes.some((value) => !Number.isFinite(value)) ||
         Date.now() / 1000 - Math.min(...reportedTimes) > 180) {
       problems.push("コントローラーからの状態報告が3分以上ありません");
+    }
+    if (lastTelemetryAt && Date.now() - lastTelemetryAt > 180000) {
+      problems.push("温度測定が3分以上ありません（ヒーターはON指示）");
     }
     showWarning(problems.length ? `状態同期の警告: ${problems.join(" / ")}` : "");
   }
@@ -98,6 +104,7 @@ export async function start(config) {
         connectTimeout: 10000,
       });
       client.on("connect", () => {
+        lastTelemetryAt = Date.now();
         client.subscribe(["reptile/cage/telemetry", "reptile/cage/state"], { qos: 1 });
         client.subscribe([`${shadowBase}/get/accepted`, `${shadowBase}/get/rejected`, `${shadowBase}/update/documents`], { qos: 1 }, (error) => {
           if (error) { showWarning("状態同期の警告: Shadowの購読に失敗しました"); return; }
@@ -118,6 +125,8 @@ export async function start(config) {
             }
           } else if (topic.endsWith("/telemetry")) {
             const age = Date.now() - Date.parse(data.observed_at);
+            if (Number.isFinite(age) && age >= 0) lastTelemetryAt = Date.parse(data.observed_at);
+            checkShadow();
             if (!Number.isFinite(age) || age < 0 || age > 120000) return;
             setText("temperature", `${Number(data.temp_c).toFixed(1)} ℃`);
             setText("humidity", `${Number(data.humidity).toFixed(0)} %`);
