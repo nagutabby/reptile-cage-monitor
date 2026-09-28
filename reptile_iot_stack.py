@@ -119,13 +119,8 @@ class ReptileIotStack(Stack):
         )
         web_permissions = [
             (["iot:Connect"], [topic_arn("client", "reptile-web-*")]),
-            (["iot:Subscribe"], [topic_arn("topicfilter", name) for name in (
-                TELEMETRY_TOPIC, STATE_TOPIC, f"{SHADOW_TOPIC}/get/accepted",
-                f"{SHADOW_TOPIC}/get/rejected", f"{SHADOW_TOPIC}/update/documents")]),
-            (["iot:Receive"], [topic_arn("topic", name) for name in (
-                TELEMETRY_TOPIC, STATE_TOPIC, f"{SHADOW_TOPIC}/get/accepted",
-                f"{SHADOW_TOPIC}/get/rejected", f"{SHADOW_TOPIC}/update/documents")]),
-            (["iot:Publish"], [topic_arn("topic", f"{SHADOW_TOPIC}/get")]),
+            (["iot:Subscribe"], [topic_arn("topicfilter", name) for name in (TELEMETRY_TOPIC, STATE_TOPIC)]),
+            (["iot:Receive"], [topic_arn("topic", name) for name in (TELEMETRY_TOPIC, STATE_TOPIC)]),
         ]
         for actions, resources in web_permissions:
             web_role.add_to_policy(iam.PolicyStatement(actions=actions, resources=resources))
@@ -293,22 +288,6 @@ class ReptileIotStack(Stack):
                 secret_string_template="{}", generate_string_key="key", password_length=48
             ),
             removal_policy=RemovalPolicy.RETAIN,
-        )
-        sync_checker = lambda_.Function(
-            self, "ShadowSyncChecker",
-            runtime=lambda_.Runtime.PYTHON_3_12,
-            handler="sync_check.handler",
-            code=lambda_.Code.from_asset(str(Path(__file__).parent / "lambda")),
-            timeout=Duration.seconds(30),
-            environment={
-                "BACKEND_URL": f"{backend}/api/iot/check-sync",
-                "INGEST_SECRET_ARN": ingest_secret.secret_arn,
-            },
-        )
-        ingest_secret.grant_read(sync_checker)
-        events.Rule(
-            self, "ShadowSyncSchedule", schedule=events.Schedule.rate(Duration.minutes(5)),
-            targets=[targets.LambdaFunction(sync_checker)],
         )
         secret_role = iam.Role(self, "IoTSecretReader", assumed_by=iam.ServicePrincipal("iot.amazonaws.com"))
         ingest_secret.grant_read(secret_role)

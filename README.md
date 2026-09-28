@@ -2,7 +2,7 @@
 
 ヒョウモントカゲモドキのケージ用 AWS リソースを管理する、独立した **Python AWS CDK** リポジトリです。CDK コードを push するだけでは AWS リソースは作成されません。デプロイは運用者が明示的に行います。
 
-東京リージョンに、M5Stack 2 台の IoT Thing・証明書・個別 MQTT ポリシー、Cognito 閲覧者ログインと未ログイン閲覧用 Identity Pool ロール、WebSocket 用の一時認証情報 API、IoT Core から既存 FastAPI への HTTP ルール、ingest key とエラー保存先を定義します。Web 閲覧者には telemetry/state とコントローラー Shadow の受信権限、Shadow 取得要求の送信権限を与えます。Lambda が温度と時刻に応じて Shadow の `desired` を更新し、認証済み API からライトだけを手動切替できます。Shadow の更新停止を検出する Lambda は5分ごとにバックエンドを呼びます。
+東京リージョンに、M5Stack 2 台の IoT Thing・証明書・個別 MQTT ポリシー、Cognito 閲覧者ログインと未ログイン閲覧用 Identity Pool ロール、WebSocket 用の一時認証情報 API、IoT Core から既存 FastAPI への HTTP ルール、ingest key とエラー保存先を定義します。Web 閲覧者には telemetry/state の受信権限を与えます。Lambda が温度と時刻に応じて Shadow の `desired` を更新し、認証済み API からライトだけを手動切替できます。
 
 ヒーター Lambda は1分ごとに retained 温度を確認し、32°C 未満なら ON、以上なら OFF を指示します。温度が3分以上届かない場合は ON を指示します。ライトは JST 7:00 に ON、19:00 に OFF を指示します。手動切替は次の時刻イベントまで有効です。新しい Shadow が空の場合、ヒーター Lambda が現在の時間帯に合わせてライトの初期値も設定します。
 
