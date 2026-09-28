@@ -213,7 +213,11 @@ def line_chart_with_thresholds(
 
 with st.container(horizontal=True, horizontal_alignment="right"):
     with st.container(border=True, width="content", horizontal=True, vertical_alignment="center"):
-        st.caption("閲覧モード · ログイン中" if st.user.is_logged_in else "閲覧モード · 誰でも閲覧できます")
+        if st.user.is_logged_in:
+            email = st.user.get("email")
+            st.caption(f"{email}でログインしています" if email else "ログインしています")
+        else:
+            st.caption("閲覧モード · 誰でも閲覧できます")
         if st.user.is_logged_in:
             if st.button("ログアウト"):
                 st.logout()
