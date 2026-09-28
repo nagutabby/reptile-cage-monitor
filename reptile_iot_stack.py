@@ -169,7 +169,14 @@ class ReptileIotStack(Stack):
             actions=["cognito-identity:GetId", "cognito-identity:GetCredentialsForIdentity"],
             resources=["*"],
         ))
-        api = apigw.HttpApi(self, "ViewerSessionApi")
+        api = apigw.HttpApi(
+            self, "ViewerSessionApi",
+            cors_preflight=apigw.CorsPreflightOptions(
+                allow_origins=[web],
+                allow_methods=[apigw.CorsHttpMethod.POST],
+                allow_headers=["Authorization", "Content-Type"],
+            ),
+        )
         viewer_authorizer = authorizers.HttpJwtAuthorizer(
             "ViewerJwt",
             f"https://cognito-idp.{self.region}.amazonaws.com/{user_pool.user_pool_id}",
