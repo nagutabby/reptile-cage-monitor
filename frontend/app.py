@@ -98,7 +98,7 @@ def render_live() -> None:
         body { margin: 0; color: #f5eee7; font-family: sans-serif; }
         .grid { display: grid; grid-template-columns: repeat(4, minmax(0,1fr)); gap: 12px; }
         .card { background: #31241b; border-radius: 10px; padding: 16px; }
-        .label { color: #c8b7a6; font-size: 15px; }
+        .label { color: #c8b7a6; font-size: 14px; }
         .value { font-size: 26px; margin-top: 7px; }
         .status { color: #c8b7a6; font-size: 14px; margin-top: 10px; }
         .light-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
@@ -114,7 +114,6 @@ def render_live() -> None:
         @media(max-width:600px) {
             .grid { grid-template-columns: repeat(2, minmax(0,1fr)); }
             .card { padding: 6px; }
-            .label { font-size: 13px; }
             .value { font-size: 18px; margin-top: 4px; }
         }
         </style><div class="grid">
