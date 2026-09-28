@@ -41,6 +41,52 @@ export async function start(config) {
   const shadowBase = "$aws/things/reptile-controller/shadow";
   const warning = document.getElementById("sync-warning");
   const updated = document.getElementById("updated");
+  const lightToggle = document.getElementById("light-toggle");
+  const lightControlStatus = document.getElementById("light-control-status");
+  let lightOn = null;
+  let pendingLight = null;
+  let pendingTimeout;
+  let requestInFlight = false;
+  function renderLightToggle() {
+    if (!lightToggle) return;
+    lightToggle.disabled = lightOn === null || pendingLight !== null || !config.lightControl?.token || !config.lightControl?.url;
+    lightToggle.setAttribute("aria-checked", String(lightOn === true));
+    lightToggle.setAttribute("aria-label", lightOn === null ? "ライトの状態を取得中" : `ライトを${lightOn ? "OFF" : "ON"}にする`);
+  }
+  lightToggle?.addEventListener("click", async () => {
+    if (lightOn === null || pendingLight !== null || !config.lightControl?.token || !config.lightControl?.url) return;
+    const requestedLight = !lightOn;
+    pendingLight = requestedLight;
+    requestInFlight = true;
+    lightControlStatus.textContent = "切替中…";
+    renderLightToggle();
+    try {
+      const response = await fetch(config.lightControl.url, {
+        method: "POST",
+        headers: { "Authorization": `Bearer ${config.lightControl.token}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ is_light_on: requestedLight }),
+      });
+      if (!response.ok) throw new Error(`Light control failed: ${response.status}`);
+      requestInFlight = false;
+      if (lightOn === requestedLight) {
+        pendingLight = null;
+        lightControlStatus.textContent = "";
+      } else {
+        pendingTimeout = setTimeout(() => {
+          pendingLight = null;
+          lightControlStatus.textContent = "状態を確認できません";
+          renderLightToggle();
+        }, 90000);
+      }
+    } catch (error) {
+      requestInFlight = false;
+      pendingLight = null;
+      lightControlStatus.textContent = "切替に失敗しました";
+      console.warn("Light control error", error);
+    }
+    renderLightToggle();
+  });
+  renderLightToggle();
   let shadowVersion = -1;
   let shadowSnapshot;
   let lastTelemetryAt = 0;
@@ -130,8 +176,17 @@ export async function start(config) {
             setText("humidity", `${Number(data.humidity).toFixed(0)} %`);
             setText("updated", `AWS IoT Coreと最後に同期した時刻: ${new Date(data.observed_at).toLocaleString("ja-JP", { timeZone: "Asia/Tokyo" })}`);
           } else if (topic.endsWith("/state")) {
-            setText("light", data.is_light_on ? "ON" : "OFF");
-            setText("heater", data.is_heater_on ? "ON" : "OFF");
+            if (typeof data.is_light_on === "boolean") {
+              lightOn = data.is_light_on;
+              setText("light", lightOn ? "ON" : "OFF");
+              if (pendingLight === lightOn && !requestInFlight) {
+                clearTimeout(pendingTimeout);
+                pendingLight = null;
+                lightControlStatus.textContent = "";
+              }
+              renderLightToggle();
+            }
+            if (typeof data.is_heater_on === "boolean") setText("heater", data.is_heater_on ? "ON" : "OFF");
           }
         } catch (error) {
           console.warn("Invalid IoT payload", error);

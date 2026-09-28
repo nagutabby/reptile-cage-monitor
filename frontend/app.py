@@ -79,7 +79,19 @@ LIGHT_CONTROL_URL = (
 
 def render_live() -> None:
     bundle = (Path(__file__).parent / "live" / "live-client.bundle.js").read_text()
-    safe_config = json.dumps(IOT_PUBLIC_CONFIG).replace("<", "\\u003c")
+    config = dict(IOT_PUBLIC_CONFIG)
+    if st.user.is_logged_in:
+        config["lightControl"] = {
+            "url": LIGHT_CONTROL_URL,
+            "token": st.user.tokens.get("id"),
+        }
+    safe_config = json.dumps(config).replace("<", "\\u003c")
+    light_toggle = (
+        '<button type="button" id="light-toggle" class="light-toggle" role="switch" '
+        'aria-label="ライト" aria-checked="false" disabled><span class="thumb"></span></button>'
+        '<div class="control-status" id="light-control-status" role="status"></div>'
+        if st.user.is_logged_in else ""
+    )
     st.iframe(
         """<style>
         body { margin: 0; color: #f5eee7; font-family: sans-serif; }
@@ -88,6 +100,16 @@ def render_live() -> None:
         .label { color: #c8b7a6; font-size: 13px; }
         .value { font-size: 26px; margin-top: 7px; }
         .status { color: #c8b7a6; font-size: 12px; margin-top: 10px; }
+        .light-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+        .light-toggle { flex: none; width: 48px; height: 28px; border: 0; border-radius: 14px;
+                        background: #77685d; padding: 3px; cursor: pointer; transition: background .2s; }
+        .light-toggle[aria-checked="true"] { background: #c08a20; }
+        .light-toggle:disabled { cursor: not-allowed; opacity: .55; }
+        .light-toggle:focus-visible { outline: 2px solid #f5eee7; outline-offset: 3px; }
+        .thumb { display: block; width: 22px; height: 22px; border-radius: 50%; background: white;
+                 transition: transform .2s; }
+        .light-toggle[aria-checked="true"] .thumb { transform: translateX(20px); }
+        .control-status { color: #f7d7a1; font-size: 11px; margin-top: 4px; min-height: 1em; }
         .sync-warning { color: #f7d7a1; background: #4a3020; border: 1px solid #a87537;
                         border-radius: 8px; padding: 8px 12px; margin-top: 8px; font-size: 13px; }
         @media(max-width:600px) {
@@ -99,7 +121,9 @@ def render_live() -> None:
         </style><div class="grid">
         <div class="card"><div class="label">最新温度</div><div class="value" id="temperature">-- ℃</div></div>
         <div class="card"><div class="label">最新湿度</div><div class="value" id="humidity">-- %</div></div>
-        <div class="card"><div class="label">ライト</div><div class="value" id="light">不明</div></div>
+        <div class="card"><div class="label">ライト</div><div class="light-row"><div class="value" id="light">不明</div>"""
+        + light_toggle
+        + """</div></div>
         <div class="card"><div class="label">パネルヒーター</div><div class="value" id="heater">不明</div></div>
         </div><div class="status" id="updated">AWS IoT Coreと最後に同期した時刻: --</div>
         <div class="sync-warning" id="sync-warning" role="alert" hidden></div><script>"""
@@ -147,48 +171,6 @@ def fetch_readings(minutes: int) -> pd.DataFrame:
         df["recorded_at"], format="%Y-%m-%dT%H:%M:%S%z", utc=True
     ).dt.tz_convert("Asia/Tokyo")
     return df.sort_values("recorded_at")
-
-
-@st.fragment(run_every=5)
-def render_light_control() -> None:
-    if not st.user.is_logged_in:
-        return
-    st.subheader("ライトの手動切替")
-    st.caption("手動で切り替えた状態は、次の7:00または19:00の自動切替まで続きます。")
-    try:
-        response = httpx.get(
-            f"{FASTAPI_URL}/api/device_state",
-            headers={"X-API-Key": API_KEY},
-            timeout=10.0,
-        )
-        response.raise_for_status()
-        state = response.json()
-        light_on = state.get("is_light_on") if isinstance(state, dict) else None
-    except (httpx.HTTPError, ValueError):
-        st.warning("ライトの状態を取得できません。")
-        return
-    if type(light_on) is not bool:
-        st.info("ライトの状態を取得中です。")
-        return
-
-    requested_light = not light_on
-    label = "ライトをOFFにする" if light_on else "ライトをONにする"
-    if st.button(label, use_container_width=True):
-        token = st.user.tokens.get("id")
-        if not LIGHT_CONTROL_URL or not token:
-            st.error("ライト操作の設定が不足しています。")
-            return
-        try:
-            response = httpx.post(
-                LIGHT_CONTROL_URL,
-                headers={"Authorization": f"Bearer {token}"},
-                json={"is_light_on": requested_light},
-                timeout=10.0,
-            )
-            response.raise_for_status()
-            st.success("切替を指示しました。実際の状態は下の表示で確認してください。")
-        except httpx.HTTPError:
-            st.error("ライトの切替指示に失敗しました。時間をおいて再試行してください。")
 
 
 def line_chart_with_thresholds(
@@ -243,8 +225,6 @@ with st.container(horizontal=True, horizontal_alignment="right"):
 
 st.title(PAGE_TITLE)
 st.caption("最新値は MQTT で更新され、履歴グラフは1分ごとに更新されます。")
-if st.user.is_logged_in:
-    render_light_control()
 render_live()
 
 if "range_label" not in st.session_state:
