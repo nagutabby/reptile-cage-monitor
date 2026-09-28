@@ -48,7 +48,11 @@ void onMessage(char* topic, byte* payload, unsigned int length) {
     if (version == 0) return;
     if (version < shadowVersion) return;
     shadowVersion = version;
-    JsonObject desired = doc["state"]["desired"];
+    // get/accepted contains state.desired; update/delta contains desired fields
+    // directly in state.
+    JsonObject desired = strcmp(topic, SHADOW_DELTA_TOPIC) == 0
+        ? doc["state"].as<JsonObject>()
+        : doc["state"]["desired"].as<JsonObject>();
     if (desired.isNull()) return;
     if (desired["is_light_on"].is<bool>()) {
         desiredLightOn = desired["is_light_on"].as<bool>();
