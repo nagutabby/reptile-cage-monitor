@@ -54,8 +54,6 @@ export async function start(config) {
     const { state = {}, metadata = {} } = shadowSnapshot;
     const desired = state.desired || {};
     const reported = state.reported || {};
-    setText("desired-light", typeof desired.is_light_on === "boolean" ? `指示: ${desired.is_light_on ? "ON" : "OFF"}` : "指示: 未設定");
-    setText("desired-heater", typeof desired.is_heater_on === "boolean" ? `指示: ${desired.is_heater_on ? "ON" : "OFF"}` : "指示: 未設定");
     const problems = [];
     for (const [key, label] of [["is_light_on", "ライト"], ["is_heater_on", "パネルヒーター"]]) {
       if (typeof desired[key] !== "boolean") {
