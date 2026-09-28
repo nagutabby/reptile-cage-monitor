@@ -5,7 +5,7 @@ from datetime import datetime, timedelta, timezone
 import anyio.to_thread
 from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request
 
-from . import alerts, config, d1, sync_alerts
+from . import alerts, config, d1
 from .schemas import DeviceStateOut, IoTStateIn, IoTTelemetryIn, ReadingIn, ReadingOut
 from .time_format import utc_seconds
 
@@ -66,7 +66,6 @@ def ingest_telemetry(reading: IoTTelemetryIn) -> dict:
     )
     if inserted:
         alerts.evaluate_and_notify(environment)
-        sync_alerts.evaluate_and_notify()
     return {"status": "ok", "inserted": bool(inserted)}
 
 
@@ -107,13 +106,7 @@ def ingest_shadow(document: dict) -> dict:
         "updated_at = excluded.updated_at WHERE excluded.version > shadow_state.version",
         [version, *(None if value is None else int(value) for value in values), updated_at],
     )
-    sync_alerts.evaluate_and_notify()
     return {"status": "ok"}
-
-
-@app.post("/api/iot/check-sync", dependencies=[Depends(verify_iot_key)])
-def check_shadow_sync() -> dict:
-    return {"problems": sync_alerts.evaluate_and_notify()}
 
 
 @app.post("/api/iot")

@@ -4,8 +4,8 @@
 
 | 部分 | 役割 |
 | --- | --- |
-| `backend/` | Render 上の FastAPI。IoT Core の HTTP ルールから測定値・制御状態・Shadow を受け、Cloudflare D1 に保存し、異常値と状態同期異常を LINE 通知 |
-| `frontend/` | Streamlit。全員に MQTT のライブ値と Shadow 同期警告を表示し、ログイン済みユーザーにライトの手動切替を提供。履歴は FastAPI から取得 |
+| `backend/` | Render 上の FastAPI。IoT Core の HTTP ルールから測定値・制御状態・Shadow を受け、Cloudflare D1 に保存し、温湿度の異常値を LINE 通知 |
+| `frontend/` | Streamlit。全員に MQTT のライブ値を表示し、ログイン済みユーザーにライトの手動切替を提供。履歴は FastAPI から取得 |
 | `schema.sql` / `migrations/` | 新規 D1 データベース用 / 既存 D1 データベースの段階的な移行用 SQL |
 
 ## セットアップ
@@ -17,7 +17,6 @@
 5. フロントエンドの MQTT bundle を更新する場合は `cd frontend/live && npm ci && npm run build` を実行し、生成した `live-client.bundle.js` をコミットします。
 
 Render の `API_KEY` は履歴 API 用で、`IOT_INGEST_KEY` は IoT Core の HTTP ルール専用です。M5Stack にどちらのキーも保存しません。
-状態同期の警告は `desired` と `reported` の ON/OFF 差分、またはコントローラーの Shadow 更新が3分以上ない場合に表示します。LINE は異常値と同様に初回と1時間ごとに再通知します。
 
 ## ローカル実行とテスト
 

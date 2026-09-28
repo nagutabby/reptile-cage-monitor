@@ -5,7 +5,7 @@ import re
 
 from fastapi.testclient import TestClient
 
-from app import alerts, config, sync_alerts
+from app import alerts, config
 from app import d1 as d1_module
 from app.main import MAX_LOOKBACK_MINUTES, app
 
@@ -206,7 +206,6 @@ def test_iot_telemetry_is_idempotent_and_alerts_once(monkeypatch):
     monkeypatch.setattr(d1_module, "query", lambda sql, params=None: queries.append((sql, params)) or next(inserts))
     notified = []
     monkeypatch.setattr(alerts, "evaluate_and_notify", lambda environment: notified.append(environment))
-    monkeypatch.setattr(sync_alerts, "evaluate_and_notify", lambda: [])
     payload = {
         "event_id": "sensor-123-1",
         "observed_at": "2026-09-27T10:00:00.123456+09:00",
@@ -223,11 +222,9 @@ def test_iot_telemetry_is_idempotent_and_alerts_once(monkeypatch):
     assert queries[0][1] == ["sensor-123-1", 27.0, 50.0, "2026-09-27T01:00:00+00:00"]
 
 
-def test_shadow_documents_keep_latest_version_and_check_sync(monkeypatch):
+def test_shadow_documents_keep_latest_version(monkeypatch):
     queries = []
     monkeypatch.setattr(d1_module, "query", lambda sql, params=None: queries.append((sql, params)) or [])
-    checked = []
-    monkeypatch.setattr(sync_alerts, "evaluate_and_notify", lambda: checked.append(True) or [])
     document = {
         "current": {
             "version": 4,
@@ -242,9 +239,7 @@ def test_shadow_documents_keep_latest_version_and_check_sync(monkeypatch):
     assert response.status_code == 200
     assert "excluded.version > shadow_state.version" in queries[0][0]
     assert queries[0][1][:5] == [4, 1, 0, 0, 0]
-    assert checked == [True]
-    assert client.post("/api/iot/check-sync", headers={"X-IoT-Key": "test-iot-key"}).status_code == 200
-    assert checked == [True, True]
+    assert client.post("/api/iot/check-sync", headers={"X-IoT-Key": "test-iot-key"}).status_code == 404
 
 
 def test_iot_ingest_rejects_wrong_key_and_invalid_measurement(monkeypatch):

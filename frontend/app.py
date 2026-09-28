@@ -110,8 +110,6 @@ def render_live() -> None:
                  transition: transform .2s; }
         .light-toggle[aria-checked="true"] .thumb { transform: translateX(20px); }
         .control-status { color: #f7d7a1; font-size: 11px; margin-top: 4px; min-height: 1em; }
-        .sync-warning { color: #f7d7a1; background: #4a3020; border: 1px solid #a87537;
-                        border-radius: 8px; padding: 8px 12px; margin-top: 8px; font-size: 13px; }
         @media(max-width:600px) {
             .grid { grid-template-columns: repeat(2, minmax(0,1fr)); }
             .card { padding: 6px; }
@@ -125,8 +123,7 @@ def render_live() -> None:
         + light_toggle
         + """</div></div>
         <div class="card"><div class="label">パネルヒーター</div><div class="value" id="heater">不明</div></div>
-        </div><div class="status" id="updated">AWS IoT Coreと最後に同期した時刻: --</div>
-        <div class="sync-warning" id="sync-warning" role="alert" hidden></div><script>"""
+        </div><div class="status" id="updated">AWS IoT Coreと最後に同期した時刻: --</div><script>"""
         + bundle.replace("</script", "<\\/script")
         + f"\nReptileLive.start({safe_config});</script>",
     )
