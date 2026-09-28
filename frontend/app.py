@@ -3,6 +3,7 @@
 import json
 import os
 from datetime import datetime, timedelta, timezone
+from html import escape
 from pathlib import Path
 
 import altair as alt
@@ -215,7 +216,8 @@ with st.container(horizontal=True, horizontal_alignment="right"):
     with st.container(border=True, width="content", horizontal=True, vertical_alignment="center"):
         if st.user.is_logged_in:
             email = st.user.get("email")
-            st.caption(f"{email}でログインしています" if email else "ログインしています")
+            login_text = f"{email}でログインしています" if email else "ログインしています"
+            st.html(f'<span style="color:#c8b7a6;font-size:0.875rem">{escape(login_text)}</span>')
         else:
             st.caption("閲覧モード · 誰でも閲覧できます")
         if st.user.is_logged_in:
@@ -225,7 +227,6 @@ with st.container(horizontal=True, horizontal_alignment="right"):
             st.login("cognito")
 
 st.title(PAGE_TITLE)
-st.caption("最新値は MQTT で更新され、履歴グラフは1分ごとに更新されます。")
 render_live()
 
 if "range_label" not in st.session_state:
@@ -261,7 +262,6 @@ def render_dashboard() -> None:
     is_temp_abnormal = latest["temp_c"] < TEMP_MIN_C or latest["temp_c"] > TEMP_MAX_C
     is_humidity_abnormal = latest["humidity"] < HUMIDITY_MIN or latest["humidity"] > HUMIDITY_MAX
 
-    st.caption(f"履歴の最終記録: {latest['recorded_at'].strftime('%Y-%m-%d %H:%M:%S')}")
     if is_temp_abnormal or is_humidity_abnormal:
         st.warning("履歴の最新測定値が許容範囲外です。")
 
