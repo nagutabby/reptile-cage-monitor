@@ -6,6 +6,7 @@ load_dotenv()
 
 API_KEY = os.environ["API_KEY"]
 IOT_INGEST_KEY = os.environ.get("IOT_INGEST_KEY", "")
+COGNITO_METADATA_URL = os.environ.get("COGNITO_METADATA_URL", "").strip()
 
 CLOUDFLARE_ACCOUNT_ID = os.environ["CLOUDFLARE_ACCOUNT_ID"]
 CLOUDFLARE_D1_DATABASE_ID = os.environ["CLOUDFLARE_D1_DATABASE_ID"]

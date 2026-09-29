@@ -3,6 +3,7 @@ from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
 
 import anyio.to_thread
+import httpx
 from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request
 
 from . import alerts, config, d1
@@ -41,6 +42,27 @@ def verify_iot_key(x_iot_key: str = Header(...)) -> None:
 @app.get("/healthz")
 def healthz() -> dict:
     return {"status": "ok"}
+
+
+@app.get("/auth/cognito/.well-known/openid-configuration")
+def cognito_openid_configuration() -> dict:
+    """Cognito の OIDC metadata を中継し、Streamlit 非互換の IdP logout endpoint を除く。"""
+    if not config.COGNITO_METADATA_URL:
+        raise HTTPException(status_code=503, detail="Cognito OIDC metadata URL is not configured")
+
+    try:
+        response = httpx.get(config.COGNITO_METADATA_URL, timeout=5.0)
+        response.raise_for_status()
+        metadata = response.json()
+    except (httpx.HTTPError, ValueError):
+        logger.warning("Unable to retrieve Cognito OIDC metadata")
+        raise HTTPException(status_code=502, detail="Cognito OIDC metadata is unavailable") from None
+
+    if not isinstance(metadata, dict):
+        raise HTTPException(status_code=502, detail="Cognito OIDC metadata is invalid")
+
+    metadata.pop("end_session_endpoint", None)
+    return metadata
 
 
 @app.post("/api/readings", status_code=201, dependencies=[Depends(verify_api_key)])

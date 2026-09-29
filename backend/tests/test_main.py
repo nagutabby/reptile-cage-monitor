@@ -3,6 +3,7 @@
 import logging
 import re
 
+import httpx
 from fastapi.testclient import TestClient
 
 from app import alerts, config
@@ -22,6 +23,61 @@ def test_iot_destination_confirmation_accepts_base_url_with_slash(caplog):
 
     assert response.status_code == 200
     assert "confirmationToken=example-token" in caplog.text
+
+
+def test_cognito_metadata_proxy_removes_end_session_endpoint(monkeypatch):
+    metadata_url = "https://cognito-idp.ap-northeast-1.amazonaws.com/ap-northeast-1_test/.well-known/openid-configuration"
+    upstream_metadata = {
+        "issuer": "https://cognito-idp.ap-northeast-1.amazonaws.com/ap-northeast-1_test",
+        "authorization_endpoint": "https://example.auth.ap-northeast-1.amazoncognito.com/oauth2/authorize",
+        "token_endpoint": "https://example.auth.ap-northeast-1.amazoncognito.com/oauth2/token",
+        "jwks_uri": "https://cognito-idp.ap-northeast-1.amazonaws.com/ap-northeast-1_test/.well-known/jwks.json",
+        "end_session_endpoint": "https://example.auth.ap-northeast-1.amazoncognito.com/logout",
+    }
+    requested = []
+    monkeypatch.setattr(config, "COGNITO_METADATA_URL", metadata_url)
+    monkeypatch.setattr(
+        "app.main.httpx.get",
+        lambda url, timeout: requested.append((url, timeout)) or httpx.Response(200, json=upstream_metadata),
+    )
+
+    response = client.get("/auth/cognito/.well-known/openid-configuration")
+
+    assert response.status_code == 200
+    assert response.json() == {key: value for key, value in upstream_metadata.items() if key != "end_session_endpoint"}
+    assert requested == [(metadata_url, 5.0)]
+
+
+def test_cognito_metadata_proxy_requires_upstream_url(monkeypatch):
+    monkeypatch.setattr(config, "COGNITO_METADATA_URL", "")
+
+    response = client.get("/auth/cognito/.well-known/openid-configuration")
+
+    assert response.status_code == 503
+
+
+def test_cognito_metadata_proxy_returns_bad_gateway_for_upstream_failure(monkeypatch):
+    monkeypatch.setattr(config, "COGNITO_METADATA_URL", "https://cognito.example/.well-known/openid-configuration")
+    monkeypatch.setattr(
+        "app.main.httpx.get",
+        lambda url, timeout: httpx.Response(503, request=httpx.Request("GET", url)),
+    )
+
+    response = client.get("/auth/cognito/.well-known/openid-configuration")
+
+    assert response.status_code == 502
+
+
+def test_cognito_metadata_proxy_rejects_non_object_metadata(monkeypatch):
+    monkeypatch.setattr(config, "COGNITO_METADATA_URL", "https://cognito.example/.well-known/openid-configuration")
+    monkeypatch.setattr(
+        "app.main.httpx.get",
+        lambda url, timeout: httpx.Response(200, json=["not", "an", "object"]),
+    )
+
+    response = client.get("/auth/cognito/.well-known/openid-configuration")
+
+    assert response.status_code == 502
 
 
 def test_list_readings_requires_api_key_header():

@@ -11,6 +11,8 @@ services:
         sync: false
       - key: IOT_INGEST_KEY
         sync: false
+      - key: COGNITO_METADATA_URL
+        value: https://cognito-idp.ap-northeast-1.amazonaws.com/ap-northeast-1_4Y1gDBGfp/.well-known/openid-configuration
       - key: CLOUDFLARE_ACCOUNT_ID
         sync: false
       - key: CLOUDFLARE_D1_DATABASE_ID

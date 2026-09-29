@@ -4,6 +4,10 @@ import os
 # テスト環境でも import が通るようダミー値を入れておく(秘密情報は使わない)。
 os.environ.setdefault("API_KEY", "test-api-key")
 os.environ.setdefault("IOT_INGEST_KEY", "test-iot-key")
+os.environ.setdefault(
+    "COGNITO_METADATA_URL",
+    "https://cognito-idp.ap-northeast-1.amazonaws.com/ap-northeast-1_test/.well-known/openid-configuration",
+)
 os.environ.setdefault("CLOUDFLARE_ACCOUNT_ID", "test-account")
 os.environ.setdefault("CLOUDFLARE_D1_DATABASE_ID", "test-db")
 os.environ.setdefault("CLOUDFLARE_API_TOKEN", "test-token")
