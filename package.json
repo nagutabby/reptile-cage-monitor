@@ -2,10 +2,11 @@
   "name": "reptile-iot-cdk",
   "private": true,
   "version": "2.0.0",
+  "packageManager": "pnpm@11.21.0",
   "scripts": {
     "build": "tsc --noEmit",
-    "build:site": "npm --prefix ../reptile-monitor/frontend/site run build",
-    "synth": "npm run build && npm run build:site && cdk synth --strict",
+    "build:site": "pnpm --dir ../reptile-monitor/frontend/site run build",
+    "synth": "pnpm run build && pnpm run build:site && cdk synth --strict",
     "test": "vitest run"
   },
   "dependencies": {

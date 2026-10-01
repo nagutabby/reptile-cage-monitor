@@ -17,14 +17,14 @@ Node.js 24以降とAWS CDK v2を使います。AWSへ変更を加えない確認
 
 ```sh
 cd reptile-iot-cdk
-npm ci
-npm run build
-npm test
-npm run build:site
-npm run synth -- -c cognitoDomainPrefix=YOUR-GLOBALLY-UNIQUE-PREFIX -c iotEndpoint=YOUR-ENDPOINT-ats.iot.ap-northeast-1.amazonaws.com
+pnpm install --frozen-lockfile
+pnpm run build
+pnpm test
+pnpm run build:site
+pnpm run synth -- -c cognitoDomainPrefix=YOUR-GLOBALLY-UNIQUE-PREFIX -c iotEndpoint=YOUR-ENDPOINT-ats.iot.ap-northeast-1.amazonaws.com
 ```
 
-`npm run synth`はCDKテンプレートをローカル生成するだけです。AWSへの適用前に`cdk diff`を確認してください。特にCognito User Pool、Identity Pool、IoT Thing、証明書の削除・置換がないことを確認します。旧Python CDKとConstruct ID／Stack IDを揃えていますが、CDK更新で論理IDやプロパティ差分が発生しないことをdiffで確認してから適用してください。
+`pnpm run synth`はCDKテンプレートをローカル生成するだけです。AWSへの適用前に`cdk diff`を確認してください。特にCognito User Pool、Identity Pool、IoT Thing、証明書の削除・置換がないことを確認します。旧Python CDKとConstruct ID／Stack IDを揃えていますが、CDK更新で論理IDやプロパティ差分が発生しないことをdiffで確認してから適用してください。
 
 初回の公開にはCloudFormation bootstrapが必要です。`cdk deploy`、CDK bootstrap、IoTルール切替はAWSリソースを変更するため、このREADMEでは自動実行しません。
 
