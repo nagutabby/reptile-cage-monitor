@@ -1,6 +1,6 @@
 # reptile-monitor
 
-Astro（Svelte）で作ったケージ監視画面です。AWS上のCloudFrontと非公開S3から配信し、ライブ表示にはAWS IoT CoreのMQTT、履歴にはHono APIとDynamoDBを使います。インフラとLambdaのコードは[reptile-iot-cdk](../reptile-iot-cdk/)で管理します。
+Astro（Svelte、TypeScript）で作ったケージ監視画面です。AWS上のCloudFrontと非公開S3から配信し、ライブ表示にはAWS IoT CoreのMQTT、履歴にはHono APIとDynamoDBを使います。インフラとLambdaのコードは[reptile-iot-cdk](../reptile-iot-cdk/)で管理します。
 
 ログインせずにライブ値・履歴を閲覧でき、Cognitoでログインするとライトを切り替えられます。履歴は30分、6時間、12時間、1日、1週間から表示範囲を選択できます。
 

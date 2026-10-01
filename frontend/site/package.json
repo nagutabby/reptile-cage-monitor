@@ -3,7 +3,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "esbuild ../live/live-client.js --bundle --format=iife --global-name=ReptileLive --minify --legal-comments=none --outfile=public/live-client.bundle.js && astro build",
+    "build": "esbuild src/live/live-client.ts --bundle --format=iife --global-name=ReptileLive --minify --legal-comments=none --outfile=public/live-client.bundle.js && astro build",
     "check": "astro check"
   },
   "dependencies": {

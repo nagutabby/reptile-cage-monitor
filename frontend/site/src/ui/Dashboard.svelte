@@ -1,11 +1,12 @@
 <script lang="ts">
   import { onMount } from "svelte";
+  import type { LiveClientConfig } from "../live/live-client";
   import HistoryChart, { type Point } from "./HistoryChart.svelte";
 
   declare global {
     interface Window {
       ReptileLive?: {
-        start: (config: Record<string, unknown>) => Promise<void>;
+        start: (config: LiveClientConfig) => Promise<void>;
       };
     }
   }
