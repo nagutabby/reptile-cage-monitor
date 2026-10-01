@@ -10,9 +10,9 @@ Node.js 24以降を使います。
 
 ```sh
 cd reptile-monitor/frontend/site
-npm ci
-npm run check
-npm run build
+pnpm install --frozen-lockfile
+pnpm run check
+pnpm run build
 ```
 
 出力は`frontend/site/dist/`です。デプロイ時はCDKのS3 deployment constructが非公開バケットへ配信し、CloudFrontのキャッシュを更新します。
