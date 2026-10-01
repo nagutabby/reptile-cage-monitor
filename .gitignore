@@ -5,3 +5,7 @@ __pycache__/
 .venv/
 .pytest_cache/
 .wrangler/
+node_modules/
+frontend/site/dist/
+frontend/site/.astro/
+frontend/site/public/live-client.bundle.js

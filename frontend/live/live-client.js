@@ -126,6 +126,7 @@ export async function start(config) {
             setText("temperature", `${Number(data.temp_c).toFixed(1)} ℃`);
             setText("humidity", `${Number(data.humidity).toFixed(0)} %`);
             setText("updated", `AWS IoT Coreと最後に同期した時刻: ${new Date(data.observed_at).toLocaleString("ja-JP", { timeZone: "Asia/Tokyo" })}`);
+            window.dispatchEvent(new CustomEvent("reptile:telemetry", { detail: data }));
           } else if (topic.endsWith("/state")) {
             if (typeof data.is_light_on === "boolean") {
               lightOn = data.is_light_on;

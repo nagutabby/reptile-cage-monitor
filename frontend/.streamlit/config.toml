@@ -1,8 +1,0 @@
-[theme]
-# ヒョウモントカゲモドキ(レオパ)の体色をイメージした配色。
-# 背景は体の黒斑、ウィジェット背景は地色のタン、アクセントは黄金色の斑紋色。
-base = "dark"
-primaryColor = "#e0a83a"
-backgroundColor = "#1a130f"
-secondaryBackgroundColor = "#332619"
-borderColor = "#5c4a30"
