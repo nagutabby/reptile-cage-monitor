@@ -5,3 +5,5 @@ cdk.out/
 .venv/
 __pycache__/
 devices/
+dist/
+coverage/

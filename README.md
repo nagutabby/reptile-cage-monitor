@@ -1,55 +1,53 @@
 # reptile-iot-cdk
 
-ヒョウモントカゲモドキのケージ用 AWS リソースを管理する、独立した **Python AWS CDK** リポジトリです。CDK コードを push するだけでは AWS リソースは作成されません。デプロイは運用者が明示的に行います。
+ヒョウモントカゲモドキのモニターをAWS上で動かすTypeScriptプロジェクトです。AstroとSvelteの静的サイトを非公開S3＋CloudFrontから配信し、Hono API・イベント処理・AWS CDKもTypeScriptで管理します。コード変更だけではAWSリソースを作成・更新しません。
 
-東京リージョンに、M5Stack 2 台の IoT Thing・証明書・個別 MQTT ポリシー、Cognito 閲覧者ログインと未ログイン閲覧用 Identity Pool ロール、WebSocket 用の一時認証情報 API、IoT Core から既存 FastAPI への HTTP ルール、ingest key とエラー保存先を定義します。Web 閲覧者には telemetry/state の受信権限を与えます。Lambda が温度と時刻に応じて Shadow の `desired` を更新し、認証済み API からライトだけを手動切替できます。
+## 構成
 
-ヒーター Lambda は1分ごとに retained 温度を確認し、32°C 未満なら ON、以上なら OFF を指示します。温度が3分以上届かない場合は ON を指示します。ライトは JST 7:00 に ON、19:00 に OFF を指示します。手動切替は次の時刻イベントまで有効です。新しい Shadow が空の場合、ヒーター Lambda が現在の時間帯に合わせてライトの初期値も設定します。
+- CloudFrontはOAC経由で非公開S3のAstroサイトを配信し、`/api/*`、`/control/*`、`/session`をHTTP APIへ転送します。
+- Hono API Lambdaは履歴・現在状態・公開Cognito設定を返します。ライト操作はAPI GatewayのCognito JWT authorizerで保護されます。
+- IoT Coreのテレメトリ、機器状態、Device Shadowルールはイベント用Lambdaを直接呼びます。ヒーターは1分ごと、ライトはJST 7時と19時に動作します。
+- DynamoDBはオンデマンド課金で、履歴、機器状態、Shadow、通知状態を保存します。履歴にTTLは設定しません。
+- LINE Messaging APIのチャネルアクセストークンと送信先IDはParameter Store Standard SecureStringから読みます。
+- CloudFrontのURLをCognito公開クライアントのOAuthコールバックに使い、ブラウザーではAuthorization Code + PKCEを使います。閲覧者はIdentity Poolのゲスト権限でMQTTライブ値を購読できます。
 
-## ローカルでの確認
+## ローカル確認
+
+Node.js 24以降とAWS CDK v2を使います。AWSへ変更を加えない確認コマンドは次のとおりです。
 
 ```sh
-python3 -m venv .venv
-.venv/bin/pip install -r requirements.txt
+cd reptile-iot-cdk
 npm ci
-aws sso login --profile sso-admin-profile
-export AWS_PROFILE=sso-admin-profile
-export CDK_DEFAULT_ACCOUNT=$(aws sts get-caller-identity --query Account --output text)
-export IOT_ENDPOINT=$(aws iot describe-endpoint --region ap-northeast-1 --endpoint-type iot:Data-ATS --query endpointAddress --output text)
-npm run synth -- \
-  -c backendBaseUrl=https://YOUR-BACKEND.onrender.com \
-  -c webBaseUrl=https://YOUR-APP.streamlit.app \
-  -c cognitoDomainPrefix=YOUR-GLOBALLY-UNIQUE-PREFIX \
-  -c iotEndpoint=$IOT_ENDPOINT
+npm run build
+npm test
+npm run build:site
+npm run synth -- -c cognitoDomainPrefix=YOUR-GLOBALLY-UNIQUE-PREFIX -c iotEndpoint=YOUR-ENDPOINT-ats.iot.ap-northeast-1.amazonaws.com
 ```
 
-`synth` はテンプレート生成のみです。実際の公開 URL を指定してください。Cognito の domain prefix はリージョン内で利用可能な名前にします。認証済みの AWS SSO profile を使用し、アクセスキーをリポジトリに保存しません。
+`npm run synth`はCDKテンプレートをローカル生成するだけです。AWSへの適用前に`cdk diff`を確認してください。特にCognito User Pool、Identity Pool、IoT Thing、証明書の削除・置換がないことを確認します。旧Python CDKとConstruct ID／Stack IDを揃えていますが、CDK更新で論理IDやプロパティ差分が発生しないことをdiffで確認してから適用してください。
 
-## デプロイ時に必要なもの
+初回の公開にはCloudFormation bootstrapが必要です。`cdk deploy`、CDK bootstrap、IoTルール切替はAWSリソースを変更するため、このREADMEでは自動実行しません。
 
-各 M5Stack の秘密鍵と CSR を別々にローカル生成します。`devices/` は Git 除外対象です。
+## LINEパラメーター
+
+値はGitやCDK contextに置かず、Standard階層のSecureStringとして登録します。LINE NotifyではなくLINE Messaging APIのチャネルアクセストークンと、push先のLINE user IDを登録してください。
 
 ```sh
-mkdir -p devices
-openssl ecparam -name prime256v1 -genkey -noout -out devices/sensor.key
-openssl req -new -key devices/sensor.key -subj /CN=reptile-sensor -out devices/sensor.csr
-openssl ecparam -name prime256v1 -genkey -noout -out devices/controller.key
-openssl req -new -key devices/controller.key -subj /CN=reptile-controller -out devices/controller.csr
+aws ssm put-parameter --region ap-northeast-1 --name /reptile-monitor/line/channel-access-token --type SecureString --tier Standard --value "$LINE_CHANNEL_ACCESS_TOKEN" --overwrite
+aws ssm put-parameter --region ap-northeast-1 --name /reptile-monitor/line/to-id --type SecureString --tier Standard --value "$LINE_TO_ID" --overwrite
 ```
 
-`cdk bootstrap` と `cdk deploy` は AWS リソースを作成します。ユーザーからデプロイ指示がある時だけ実行してください。デプロイ時には上記 4 つの context に加え、`--parameters SensorCsr="$(cat devices/sensor.csr)"`、`--parameters ControllerCsr="$(cat devices/controller.csr)"`、`--parameters ViewerEmail=閲覧者のメールアドレス` を指定します。初回は CDK bootstrap が必要です。閲覧者のメールアドレスは Git に保存せず、Cognito の招待メールから初回ログインします。招待に含まれる仮パスワードの有効期限は 7 日です。
+別の名前を使う場合は`lineTokenParameterName`と`lineToParameterName`をCDK contextで指定します。関数ロールにはその2つのパラメーターの読み取り権限だけを付与します。
 
-デプロイ後は stack outputs の証明書 ARN に対応する certificate ID で `aws iot describe-certificate` を呼び、各 PEM を取得します。Amazon Root CA 1、秘密鍵、証明書、IoT endpoint を [AtomS3 側](../atoms3-reptile-cage/) の機器別設定に格納します。
+## 機器仕様
 
-Secrets Manager の `IngestSecretArn` にある `key` を Render の `IOT_INGEST_KEY` に設定します。IoT HTTP destination の確認トークンは FastAPI の `/api/iot` が Render のログに出力するので、確認後に `aws iot confirm-topic-rule-destination` と `aws iot update-topic-rule-destination --status ENABLED` を実行します。Render への HTTPS 接続とルールの送信結果を確認してください。
+- MQTTトピックは`reptile/cage/telemetry`と`reptile/cage/state`です。Device Shadowは`reptile-controller`の名前付きThingのclassic Shadowを使用します。
+- 温度が32°C未満ならヒーターON、32°C以上ならOFFです。3分を超えて新しい温度を受け取れない場合はヒーターONにします。
+- 新しいShadowにライト状態がない場合、ヒーター処理が現時刻に合うライト状態を初期設定します。ライトの予定制御はJST 7:00 ON、19:00 OFFで、手動操作は次の予定時刻まで有効です。
+- 24–32°C、湿度40–90%から外れた最初の値でLINE通知し、異常が続く場合は1時間間隔で再通知します。機器同期通知は実装しません。
 
-Cognito app client の secret と User Pool ID を [Streamlit 側](../reptile-monitor/frontend/.streamlit/secrets.toml.example) に設定します。閲覧用 MQTT は未ログインでもゲスト Identity Pool ロールで購読できます。閲覧者アカウントは CDK が作成します。client secret や機器秘密鍵を Git に push しないでください。
-Stack output の `LightControlUrl` を Streamlit の `LIGHT_CONTROL_URL` に設定します。CDK を先にデプロイし、Shadow の `desired` が Lambda で更新されることを確認してからコントローラーに新しいファームウェアを書き込みます。CDK デプロイだけでは実機の制御経路は切り替わりません。
+## コスト
 
-## 月額コストの事前見積もり
+DynamoDBはオンデマンド、LambdaとHTTP APIは従量課金です。サイト配信はCloudFront Price Class 100を使います。東京リージョンで稼働し、独自ドメインは追加しません。IoT Coreの接続・メッセージ・Shadow・ルール処理、CloudFront転送量を実利用量で見積もってください。
 
-2026-09-28 時点の旧構成は、Shadow を毎分更新する場合の概算 **$1.2/月** でした。新構成はヒーター制御 Lambda と retained メッセージ取得を毎分実行するため、料金を再見積もりしてからデプロイしてください。Shadow の更新は目標値が変わった時だけ行います。アカウント全体の3 USD予算は利用を停止しません。
-
-AWS Budgets には、ユーザー指定により AWS CLI でアカウント全体の月額 **3 USD** 予算 `monthly-3-usd-alert` を別途作成済みです。実績 80%・100% と予測 100% で `nagutabby@nagutabby.uk` に通知します。予算は課金を停止しません。デプロイ後は Cost Explorer の実績と照合します。
-
-料金の根拠: [AWS IoT Core](https://aws.amazon.com/iot-core/pricing/)、[Secrets Manager](https://aws.amazon.com/secrets-manager/pricing/)、[Cognito](https://aws.amazon.com/cognito/pricing/)、[API Gateway](https://aws.amazon.com/api-gateway/pricing/)。
+AWS Budgetsの月額予算は`monthly-5-usd-alert`（5 USD）です。実績80%・100%、予測100%の各アラートは従来の通知先を維持しています。Budgetは課金を停止しないため、Cost Explorerで実額も確認してください。

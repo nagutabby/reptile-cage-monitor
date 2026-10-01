@@ -1,5 +1,5 @@
 {
-  "app": ".venv/bin/python app.py",
+  "app": "node --import tsx bin/reptile-iot.ts",
   "context": {
     "@aws-cdk/core:checkSecretUsage": true,
     "@aws-cdk/aws-iam:minimizePolicies": true

@@ -1,9 +1,32 @@
 {
   "name": "reptile-iot-cdk",
   "private": true,
-  "version": "1.0.0",
-  "scripts": { "synth": "cdk synth --strict" },
+  "version": "2.0.0",
+  "scripts": {
+    "build": "tsc --noEmit",
+    "build:site": "npm --prefix ../reptile-monitor/frontend/site run build",
+    "synth": "npm run build && npm run build:site && cdk synth --strict",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@aws-sdk/client-cognito-identity": "^3.1141.0",
+    "@aws-sdk/client-dynamodb": "^3.1141.0",
+    "@aws-sdk/client-iot": "^3.1141.0",
+    "@aws-sdk/client-iot-data-plane": "^3.1141.0",
+    "@aws-sdk/client-ssm": "^3.1141.0",
+    "@aws-sdk/lib-dynamodb": "^3.1141.0",
+    "@hono/aws-lambda": "^1.0.0",
+    "aws-cdk-lib": "2.256.1",
+    "constructs": "10.6.0",
+    "hono": "^4.10.0"
+  },
   "devDependencies": {
-    "aws-cdk": "2.1122.0"
+    "@types/aws-lambda": "^8.10.0",
+    "@types/node": "^24.0.0",
+    "aws-cdk": "2.1122.0",
+    "esbuild": "^0.25.0",
+    "tsx": "^4.20.0",
+    "typescript": "^5.9.0",
+    "vitest": "^3.2.0"
   }
 }
