@@ -27,16 +27,21 @@ struct Response {
 // On failure (connect/service/characteristic/write error, or RESP timeout),
 // retries up to `maxAttempts` times total, waiting `retryDelayMs` between
 // attempts - BLE connections to these devices are flaky enough in practice
-// that a single miss shouldn't be treated as a real failure.
+// that a single miss shouldn't be treated as a real failure. The connection
+// timeout is in seconds; command callers keep the 5-second default.
 bool sendCommand(const char* mac, const uint8_t* cmd, size_t cmdLen,
                   Response& resp, uint32_t timeoutMs = 3000,
-                  uint8_t maxAttempts = 3, uint32_t retryDelayMs = 400);
+                  uint8_t maxAttempts = 3, uint32_t retryDelayMs = 400,
+                  uint32_t connectTimeoutSeconds = 5);
 
 // ---- Plug Mini (0x0F expansion command) ----
 bool plugTurnOn(const char* mac);
 bool plugTurnOff(const char* mac);
-// Returns true and fills `isOn` on success.
-bool plugReadState(const char* mac, bool& isOn);
+// Returns true and fills `isOn` on success. Parameters allow periodic background
+// polling to use one short attempt without changing command retry behavior.
+bool plugReadState(const char* mac, bool& isOn, uint32_t timeoutMs = 3000,
+                   uint8_t maxAttempts = 3, uint32_t retryDelayMs = 400,
+                   uint32_t connectTimeoutSeconds = 5);
 
 // ---- Meter (waterproof/outdoor, WoSensorTHO) ----
 // This device is read via passive BLE advertisement scanning rather than a

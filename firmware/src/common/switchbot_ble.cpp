@@ -32,21 +32,29 @@ namespace {
 // know which a given device uses (some Plug Minis have shown up using a
 // random static address instead of public), so sendCommand() tries both.
 bool sendCommandOnce(const char* mac, const uint8_t* cmd, size_t cmdLen, Response& resp,
-                     uint32_t timeoutMs, uint8_t addrType) {
+                     uint32_t timeoutMs, uint8_t addrType, uint32_t connectTimeoutSeconds) {
     resp = Response{};
 
     NimBLEClient* pClient = NimBLEDevice::createClient();
-    pClient->setConnectTimeout(5);
+    pClient->setConnectTimeout(connectTimeoutSeconds);
 
+    uint32_t connectStartMs = millis();
     bool connected = pClient->connect(NimBLEAddress(std::string(mac), addrType));
+    uint32_t connectDurationMs = millis() - connectStartMs;
+    Serial.printf("[BLE] connect %s addrType=%u in %lu ms: %s\n",
+                  connected ? "OK" : "FAILED", addrType,
+                  static_cast<unsigned long>(connectDurationMs), mac);
     if (!connected) {
-        Serial.printf("[BLE] connect failed (addrType=%u): %s\n", addrType, mac);
         NimBLEDevice::deleteClient(pClient);
         return false;
     }
 
     bool success = false;
+    uint32_t discoveryStartMs = millis();
     NimBLERemoteService* pSvc = pClient->getService(SERVICE_UUID);
+    uint32_t discoveryDurationMs = millis() - discoveryStartMs;
+    Serial.printf("[BLE] service discovery in %lu ms: %s\n",
+                  static_cast<unsigned long>(discoveryDurationMs), mac);
     if (pSvc == nullptr) {
         Serial.printf("[BLE] service not found: %s\n", mac);
     } else {
@@ -56,15 +64,26 @@ bool sendCommandOnce(const char* mac, const uint8_t* cmd, size_t cmdLen, Respons
             Serial.printf("[BLE] characteristic not found: %s\n", mac);
         } else {
             g_pendingResponse = &resp;
+            uint32_t subscribeStartMs = millis();
             if (pNotify->canNotify()) {
                 pNotify->subscribe(true, notifyCallback);
             }
+            uint32_t subscribeDurationMs = millis() - subscribeStartMs;
+            Serial.printf("[BLE] notify subscribe in %lu ms: %s\n",
+                          static_cast<unsigned long>(subscribeDurationMs), mac);
 
+            uint32_t writeStartMs = millis();
             if (pWrite->writeValue(cmd, cmdLen, true)) {
-                uint32_t start = millis();
-                while (!resp.ok && (millis() - start) < timeoutMs) {
+                uint32_t writeDurationMs = millis() - writeStartMs;
+                Serial.printf("[BLE] request write in %lu ms: %s\n",
+                              static_cast<unsigned long>(writeDurationMs), mac);
+                uint32_t responseStartMs = millis();
+                while (!resp.ok && (millis() - responseStartMs) < timeoutMs) {
                     delay(20);
                 }
+                Serial.printf("[BLE] response %s in %lu ms: %s\n",
+                              resp.ok ? "received" : "timeout",
+                              static_cast<unsigned long>(millis() - responseStartMs), mac);
                 success = true; // request was sent; resp.ok reflects whether a RESP arrived
             } else {
                 Serial.printf("[BLE] write failed: %s\n", mac);
@@ -85,15 +104,21 @@ bool sendCommandOnce(const char* mac, const uint8_t* cmd, size_t cmdLen, Respons
 } // namespace
 
 bool sendCommand(const char* mac, const uint8_t* cmd, size_t cmdLen, Response& resp,
-                  uint32_t timeoutMs, uint8_t maxAttempts, uint32_t retryDelayMs) {
+                  uint32_t timeoutMs, uint8_t maxAttempts, uint32_t retryDelayMs,
+                  uint32_t connectTimeoutSeconds) {
     // Alternate address type each attempt so a wrong first guess doesn't
     // burn through all the retries on the same mistake.
     static const uint8_t addrTypes[] = {BLE_ADDR_PUBLIC, BLE_ADDR_RANDOM};
 
     for (uint8_t attempt = 1; attempt <= maxAttempts; attempt++) {
         uint8_t addrType = addrTypes[(attempt - 1) % 2];
-        bool sent = sendCommandOnce(mac, cmd, cmdLen, resp, timeoutMs, addrType);
-        if (sent && resp.ok) return true;
+        uint32_t attemptStartMs = millis();
+        bool sent = sendCommandOnce(mac, cmd, cmdLen, resp, timeoutMs, addrType, connectTimeoutSeconds);
+        bool ok = sent && resp.ok;
+        Serial.printf("[BLE] attempt %u/%u %s in %lu ms: %s\n",
+                      attempt, maxAttempts, ok ? "OK" : "FAILED",
+                      static_cast<unsigned long>(millis() - attemptStartMs), mac);
+        if (ok) return true;
 
         if (attempt < maxAttempts) {
             Serial.printf("[BLE] retry %u/%u: %s\n", attempt, maxAttempts, mac);
@@ -117,10 +142,13 @@ bool plugTurnOff(const char* mac) {
     return resp.ok && resp.len >= 2 && resp.data[0] == 0x01 && resp.data[1] == 0x00;
 }
 
-bool plugReadState(const char* mac, bool& isOn) {
+bool plugReadState(const char* mac, bool& isOn, uint32_t timeoutMs,
+                   uint8_t maxAttempts, uint32_t retryDelayMs,
+                   uint32_t connectTimeoutSeconds) {
     const uint8_t cmd[] = {0x57, 0x0F, 0x51, 0x01};
     Response resp;
-    if (!sendCommand(mac, cmd, sizeof(cmd), resp)) return false;
+    if (!sendCommand(mac, cmd, sizeof(cmd), resp, timeoutMs, maxAttempts,
+                     retryDelayMs, connectTimeoutSeconds)) return false;
     if (!resp.ok || resp.len < 2 || resp.data[0] != 0x01) return false;
     isOn = (resp.data[1] == 0x80);
     return true;
