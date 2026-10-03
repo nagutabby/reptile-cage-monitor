@@ -13,7 +13,7 @@
 
 ## 準備
 
-AWS IoT Core の Thing、証明書、ポリシーは [reptile-iot-cdk](../reptile-iot-cdk/) の Python CDK で管理します。各機器の秘密鍵と CSR はそのリポジトリの手順に従ってローカルで生成し、秘密鍵を Git に含めないでください。
+AWS IoT Core の Thing、証明書、ポリシーは [リポジトリルート](../README.md) の TypeScript CDK で管理します。各機器の秘密鍵と CSR はリポジトリの手順に従ってローカルで生成し、秘密鍵を Git に含めないでください。
 
 ```sh
 cp include/wifi_config.h.example include/wifi_config.h
@@ -26,10 +26,10 @@ cp include/iot_config.h.example include/iot_config_controller.h
 ## ビルド・書き込み
 
 ```sh
-pio run -e sensor-pub
-pio run -e controller-sub
-pio run -e sensor-pub --target upload --upload-port /dev/cu.usbmodemXXXX
-pio run -e controller-sub --target upload --upload-port /dev/cu.usbmodemYYYY
+pio run --project-dir firmware -e sensor-pub
+pio run --project-dir firmware -e controller-sub
+pio run --project-dir firmware -e sensor-pub --target upload --upload-port /dev/cu.usbmodemXXXX
+pio run --project-dir firmware -e controller-sub --target upload --upload-port /dev/cu.usbmodemYYYY
 ```
 
 動作確認はシリアルログ、IoT Core の MQTT テストクライアント、Web アプリのライブ画面で行います。IoT endpoint と証明書はデプロイ後に設定するため、ローカルのビルド成功だけでは実通信を確認できません。

@@ -1,6 +1,13 @@
 # reptile-iot-cdk
 
-ヒョウモントカゲモドキのモニターをAWS上で動かすTypeScriptプロジェクトです。AstroとSvelteの静的サイトを非公開S3＋CloudFrontから配信し、Hono API・イベント処理・AWS CDKもTypeScriptで管理します。コード変更だけではAWSリソースを作成・更新しません。
+ヒョウモントカゲモドキ用ケージ監視システムのモノレポです。AWS CDK・Lambda API、Astro/Svelte監視画面、AtomS3ファームウェアをまとめて管理します。コード変更だけではAWSリソースを作成・更新しません。
+
+## ディレクトリ
+
+- `firmware/`: AtomS3のセンサー、コントローラー、検査用ファームウェア
+- `frontend/site/`: AstroとSvelteの監視画面
+- `bin/`、`lib/`、`lambda/`: AWS CDKとLambda
+- `test/`: CDK・Lambdaのテスト
 
 ## 構成
 
@@ -16,12 +23,19 @@
 Node.js 24以降とAWS CDK v2を使います。AWSへ変更を加えない確認コマンドは次のとおりです。
 
 ```sh
-cd reptile-iot-cdk
 pnpm install --frozen-lockfile
+pnpm --dir frontend/site install --frozen-lockfile
 pnpm run build
 pnpm test
 pnpm run build:site
 pnpm run synth -- -c cognitoDomainPrefix=YOUR-GLOBALLY-UNIQUE-PREFIX -c iotEndpoint=YOUR-ENDPOINT-ats.iot.ap-northeast-1.amazonaws.com
+```
+
+監視画面の型検査とビルドは `pnpm --dir frontend/site run check` と `pnpm --dir frontend/site run build` でも個別に実行できます。ファームウェアは PlatformIO でビルドします。
+
+```sh
+pio run --project-dir firmware -e sensor-pub
+pio run --project-dir firmware -e controller-sub
 ```
 
 `pnpm run synth`はCDKテンプレートをローカル生成するだけです。AWSへの適用前に`cdk diff`を確認してください。特にCognito User Pool、Identity Pool、IoT Thing、証明書の削除・置換がないことを確認します。旧Python CDKとConstruct ID／Stack IDを揃えていますが、CDK更新で論理IDやプロパティ差分が発生しないことをdiffで確認してから適用してください。

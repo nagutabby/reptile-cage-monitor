@@ -6,6 +6,6 @@ __pycache__/
 .pytest_cache/
 .wrangler/
 node_modules/
-frontend/site/dist/
-frontend/site/.astro/
-frontend/site/public/live-client.bundle.js
+site/dist/
+site/.astro/
+site/public/live-client.bundle.js
