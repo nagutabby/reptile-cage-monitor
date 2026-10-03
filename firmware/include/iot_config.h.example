@@ -1,0 +1,13 @@
+#pragma once
+// Copy to include/iot_config_sensor.h and include/iot_config_controller.h.
+// Use a different thing certificate and private key for each file. Never commit them.
+#define IOT_ENDPOINT "your-endpoint-ats.iot.ap-northeast-1.amazonaws.com"
+static const char IOT_ROOT_CA[] = R"EOF(-----BEGIN CERTIFICATE-----
+PASTE_AMAZON_ROOT_CA_1_PEM_HERE
+-----END CERTIFICATE-----)EOF";
+static const char IOT_DEVICE_CERT[] = R"EOF(-----BEGIN CERTIFICATE-----
+PASTE_DEVICE_CERTIFICATE_PEM_HERE
+-----END CERTIFICATE-----)EOF";
+static const char IOT_PRIVATE_KEY[] = R"EOF(-----BEGIN PRIVATE KEY-----
+PASTE_DEVICE_PRIVATE_KEY_PEM_HERE
+-----END PRIVATE KEY-----)EOF";
