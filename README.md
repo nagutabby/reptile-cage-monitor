@@ -1,4 +1,4 @@
-# reptile-iot-cdk
+# reptile-cage-monitor
 
 ヒョウモントカゲモドキ用ケージ監視システムのモノレポです。AWS CDK・Lambda API、Astro/Svelte監視画面、AtomS3ファームウェアをまとめて管理します。コード変更だけではAWSリソースを作成・更新しません。
 
