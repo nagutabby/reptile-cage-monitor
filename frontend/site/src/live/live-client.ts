@@ -1,5 +1,6 @@
 import mqtt, { type MqttClient } from "mqtt";
 import { CognitoIdentityClient, GetCredentialsForIdentityCommand, GetIdCommand } from "@aws-sdk/client-cognito-identity";
+import { apiClient } from "../api-client";
 
 export interface LiveClientConfig {
   region: string;
@@ -7,7 +8,6 @@ export interface LiveClientConfig {
   identityPoolId: string;
   lightControl?: {
     token: string;
-    url: string;
   };
 }
 
@@ -82,24 +82,23 @@ export async function start(config: LiveClientConfig): Promise<void> {
 
   function renderLightToggle(): void {
     if (!lightToggle) return;
-    lightToggle.disabled = lightOn === null || pendingLight !== null || !config.lightControl?.token || !config.lightControl?.url;
+    lightToggle.disabled = lightOn === null || pendingLight !== null || !config.lightControl?.token;
     lightToggle.setAttribute("aria-checked", String(lightOn === true));
     lightToggle.setAttribute("aria-label", lightOn === null ? "ライトの状態を取得中" : `ライトを${lightOn ? "OFF" : "ON"}にする`);
   }
 
   lightToggle?.addEventListener("click", async () => {
-    if (lightOn === null || pendingLight !== null || !config.lightControl?.token || !config.lightControl?.url) return;
+    if (lightOn === null || pendingLight !== null || !config.lightControl?.token) return;
     const requestedLight = !lightOn;
     pendingLight = requestedLight;
     requestInFlight = true;
     setControlStatus("切替中…");
     renderLightToggle();
     try {
-      const response = await fetch(config.lightControl.url, {
-        method: "POST",
-        headers: { "Authorization": `Bearer ${config.lightControl.token}`, "Content-Type": "application/json" },
-        body: JSON.stringify({ is_light_on: requestedLight }),
-      });
+      const response = await apiClient.control.light.$post(
+        { json: { is_light_on: requestedLight } },
+        { headers: { Authorization: `Bearer ${config.lightControl.token}` } },
+      );
       if (!response.ok) throw new Error(`Light control failed: ${response.status}`);
       requestInFlight = false;
       if (lightOn === requestedLight) {

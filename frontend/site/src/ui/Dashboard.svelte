@@ -1,5 +1,7 @@
 <script lang="ts">
+  import type { InferResponseType } from "hono/client";
   import { onMount } from "svelte";
+  import { apiClient } from "../api-client";
   import type { LiveClientConfig } from "../live/live-client";
   import HistoryChart, { type Point } from "./HistoryChart.svelte";
 
@@ -11,22 +13,9 @@
     }
   }
 
-  interface PublicConfig {
-    region: string;
-    endpoint: string;
-    identityPoolId: string;
-    userPoolId: string;
-    clientId: string;
-    cognitoDomain: string;
-  }
-
-  interface Reading extends Point { id: string | number; }
-  interface DeviceState {
-    is_light_on: boolean | null;
-    is_light_on_changed_at: string | null;
-    is_heater_on: boolean | null;
-    is_heater_on_changed_at: string | null;
-  }
+  type PublicConfig = InferResponseType<typeof apiClient.api.config.$get, 200>;
+  type Reading = InferResponseType<typeof apiClient.api.readings.$get, 200>[number] & Point;
+  type DeviceState = InferResponseType<typeof apiClient.api.device_state.$get, 200>;
 
   const ranges = [
     { label: "30分", minutes: 30 },
@@ -151,17 +140,19 @@
     window.location.assign(`https://${config.cognitoDomain}/logout?${query}`);
   }
 
-  async function getJson<T>(url: string, authenticated = false): Promise<T> {
-    const headers: HeadersInit = authenticated && idToken ? { Authorization: `Bearer ${idToken}` } : {};
-    const response = await fetch(url, { headers, cache: "no-store" });
+  async function getJson<T>(request: Promise<{ ok: boolean; status: number; json(): Promise<T> }>): Promise<T> {
+    const response = await request;
     if (!response.ok) throw new Error(`API ${response.status}`);
-    return await response.json() as T;
+    return response.json();
   }
 
   async function loadHistory() {
     loadingHistory = true;
     try {
-      readings = await getJson<Reading[]>(`/api/readings?minutes=${rangeMinutes}`);
+      readings = await getJson(apiClient.api.readings.$get(
+        { query: { minutes: String(rangeMinutes) } },
+        { init: { cache: "no-store" } },
+      ));
       message = readings.length ? "" : "選択期間の履歴はありません";
     } catch (error) {
       message = error instanceof Error ? `履歴を読み込めません: ${error.message}` : "履歴を読み込めません";
@@ -172,7 +163,7 @@
 
   async function loadState() {
     try {
-      device = await getJson<DeviceState>("/api/device_state");
+      device = await getJson(apiClient.api.device_state.$get({}, { init: { cache: "no-store" } }));
     } catch (error) {
       console.warn("Could not load device state", error);
     }
@@ -184,7 +175,7 @@
       region: config.region,
       endpoint: config.endpoint,
       identityPoolId: config.identityPoolId,
-      ...(idToken ? { lightControl: { url: "/control/light", token: idToken } } : {}),
+      ...(idToken ? { lightControl: { token: idToken } } : {}),
     };
     try {
       await window.ReptileLive.start(liveConfig);
@@ -204,7 +195,7 @@
     window.addEventListener("reptile:telemetry", onTelemetry);
     void (async () => {
       try {
-        config = await getJson<PublicConfig>("/api/config");
+        config = await getJson(apiClient.api.config.$get({}, { init: { cache: "no-store" } }));
         if (stopped) return;
         useSavedLogin();
         await finishLogin();
