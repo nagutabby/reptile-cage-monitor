@@ -6,6 +6,7 @@ import * as apigwv2Authorizers from "aws-cdk-lib/aws-apigatewayv2-authorizers";
 import * as apigwv2Integrations from "aws-cdk-lib/aws-apigatewayv2-integrations";
 import * as cloudfront from "aws-cdk-lib/aws-cloudfront";
 import * as origins from "aws-cdk-lib/aws-cloudfront-origins";
+import * as acm from "aws-cdk-lib/aws-certificatemanager";
 import * as cognito from "aws-cdk-lib/aws-cognito";
 import * as cloudwatch from "aws-cdk-lib/aws-cloudwatch";
 import * as dynamodb from "aws-cdk-lib/aws-dynamodb";
@@ -17,6 +18,8 @@ import * as lambda from "aws-cdk-lib/aws-lambda";
 import * as lambdaNodejs from "aws-cdk-lib/aws-lambda-nodejs";
 import * as s3 from "aws-cdk-lib/aws-s3";
 import * as s3deploy from "aws-cdk-lib/aws-s3-deployment";
+import * as route53 from "aws-cdk-lib/aws-route53";
+import * as route53Targets from "aws-cdk-lib/aws-route53-targets";
 import * as scheduler from "aws-cdk-lib/aws-scheduler";
 import * as ssm from "aws-cdk-lib/aws-ssm";
 
@@ -25,9 +28,29 @@ const STATE_TOPIC = "reptile/cage/state";
 const SHADOW_TOPIC = "$aws/things/reptile-controller/shadow";
 const LAMBDA_RUNTIME = lambda.Runtime.NODEJS_24_X;
 
+const recordNameWithinZone = (domainName: string, zoneName: string): string | undefined => {
+  if (domainName === zoneName) return undefined;
+  const suffix = `.${zoneName}`;
+  if (!domainName.endsWith(suffix)) {
+    throw new Error(`${domainName} is not within the Route 53 hosted zone ${zoneName}`);
+  }
+  return domainName.slice(0, -suffix.length);
+};
+
 export interface ReptileIotStackProps extends cdk.StackProps {
   readonly cognitoDomainPrefix: string;
   readonly iotEndpoint: string;
+  /** Optional custom hostname for the CloudFront dashboard. */
+  readonly dashboardDomainName?: string;
+  /** ACM certificate ARN in us-east-1 for dashboardDomainName. */
+  readonly dashboardCertificateArn?: string;
+  /** Public Route 53 hosted zone containing dashboardDomainName. */
+  readonly dashboardHostedZoneId?: string;
+  readonly dashboardHostedZoneName?: string;
+  /** Optional second hostname kept on the same CloudFront distribution. */
+  readonly dashboardAdditionalDomainName?: string;
+  readonly dashboardAdditionalHostedZoneId?: string;
+  readonly dashboardAdditionalHostedZoneName?: string;
   /** Optional old site origin, for a short overlap period. */
   readonly legacyWebBaseUrl?: string;
   readonly lineTokenParameterName?: string;
@@ -40,6 +63,15 @@ export class ReptileIotStack extends cdk.Stack {
 
     if (!props.iotEndpoint || props.iotEndpoint.includes("://")) {
       throw new Error("iotEndpoint must be an AWS IoT data ATS hostname");
+    }
+    const hasDashboardDomain = Boolean(props.dashboardDomainName);
+    if (hasDashboardDomain !== Boolean(props.dashboardCertificateArn)
+      || hasDashboardDomain !== Boolean(props.dashboardHostedZoneId)
+      || hasDashboardDomain !== Boolean(props.dashboardHostedZoneName)
+      || Boolean(props.dashboardAdditionalDomainName) !== Boolean(props.dashboardAdditionalHostedZoneId)
+      || Boolean(props.dashboardAdditionalDomainName) !== Boolean(props.dashboardAdditionalHostedZoneName)
+      || (props.dashboardAdditionalDomainName && !props.dashboardDomainName)) {
+      throw new Error("dashboard domain, certificate, and hosted-zone settings must be provided consistently");
     }
     const topicArn = (kind: string, name: string) => this.formatArn({
       service: "iot",
@@ -393,7 +425,15 @@ export class ReptileIotStack extends cdk.Stack {
     }
 
     const apiHost = cdk.Fn.select(2, cdk.Fn.split("/", api.apiEndpoint));
+    const dashboardCertificate = props.dashboardCertificateArn
+      ? acm.Certificate.fromCertificateArn(this, "DashboardCertificate", props.dashboardCertificateArn)
+      : undefined;
     const distribution = new cloudfront.Distribution(this, "DashboardDistribution", {
+      ...(props.dashboardDomainName ? { domainNames: [
+        props.dashboardDomainName,
+        ...(props.dashboardAdditionalDomainName ? [props.dashboardAdditionalDomainName] : []),
+      ] } : {}),
+      ...(dashboardCertificate ? { certificate: dashboardCertificate } : {}),
       defaultBehavior: {
         origin: origins.S3BucketOrigin.withOriginAccessControl(siteBucket),
         viewerProtocolPolicy: cloudfront.ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
@@ -419,8 +459,55 @@ export class ReptileIotStack extends cdk.Stack {
     });
 
     const astroClientResource = astroClient.node.defaultChild as cognito.CfnUserPoolClient;
-    astroClientResource.addPropertyOverride("CallbackURLs", [`https://${distribution.distributionDomainName}/oauth2callback`]);
-    astroClientResource.addPropertyOverride("LogoutURLs", [`https://${distribution.distributionDomainName}/`]);
+    astroClientResource.addPropertyOverride("CallbackURLs", [
+      `https://${distribution.distributionDomainName}/oauth2callback`,
+      ...(props.dashboardDomainName ? [`https://${props.dashboardDomainName}/oauth2callback`] : []),
+      ...(props.dashboardAdditionalDomainName ? [`https://${props.dashboardAdditionalDomainName}/oauth2callback`] : []),
+    ]);
+    astroClientResource.addPropertyOverride("LogoutURLs", [
+      `https://${distribution.distributionDomainName}/`,
+      ...(props.dashboardDomainName ? [`https://${props.dashboardDomainName}/`] : []),
+      ...(props.dashboardAdditionalDomainName ? [`https://${props.dashboardAdditionalDomainName}/`] : []),
+    ]);
+    if (props.dashboardDomainName && props.dashboardHostedZoneId) {
+      const dashboardZone = route53.HostedZone.fromHostedZoneAttributes(this, "DashboardZone", {
+        zoneName: props.dashboardHostedZoneName!,
+        hostedZoneId: props.dashboardHostedZoneId,
+      });
+      const dashboardTarget = route53.RecordTarget.fromAlias(new route53Targets.CloudFrontTarget(distribution));
+      const additionalZone = props.dashboardAdditionalDomainName && props.dashboardAdditionalHostedZoneId
+        ? route53.HostedZone.fromHostedZoneAttributes(this, "DashboardAdditionalZone", {
+          zoneName: props.dashboardAdditionalHostedZoneName!,
+          hostedZoneId: props.dashboardAdditionalHostedZoneId,
+        })
+        : undefined;
+      const additionalRecordName = props.dashboardAdditionalDomainName && props.dashboardAdditionalHostedZoneName
+        ? recordNameWithinZone(props.dashboardAdditionalDomainName, props.dashboardAdditionalHostedZoneName)
+        : recordNameWithinZone(props.dashboardDomainName, props.dashboardHostedZoneName!);
+      new route53.ARecord(this, "DashboardAliasA", {
+        zone: additionalZone ?? dashboardZone,
+        recordName: additionalRecordName,
+        target: dashboardTarget,
+      });
+      new route53.AaaaRecord(this, "DashboardAliasAAAA", {
+        zone: additionalZone ?? dashboardZone,
+        recordName: additionalRecordName,
+        target: dashboardTarget,
+      });
+      if (additionalZone) {
+        const primaryRecordName = recordNameWithinZone(props.dashboardDomainName, props.dashboardHostedZoneName!);
+        new route53.ARecord(this, "DashboardAliasA2", {
+          zone: dashboardZone,
+          recordName: primaryRecordName,
+          target: dashboardTarget,
+        });
+        new route53.AaaaRecord(this, "DashboardAliasAAAA2", {
+          zone: dashboardZone,
+          recordName: primaryRecordName,
+          target: dashboardTarget,
+        });
+      }
+    }
     identityPool.cognitoIdentityProviders = [legacyClient, astroClient].map((client) => ({
       clientId: client.userPoolClientId,
       providerName: userPool.userPoolProviderName,
@@ -442,6 +529,12 @@ export class ReptileIotStack extends cdk.Stack {
     new cdk.CfnOutput(this, "IdentityPoolId", { value: identityPool.ref });
     new cdk.CfnOutput(this, "CognitoDomain", { value: `${props.cognitoDomainPrefix}.auth.${this.region}.amazoncognito.com` });
     new cdk.CfnOutput(this, "DashboardUrl", { value: `https://${distribution.distributionDomainName}` });
+    if (props.dashboardDomainName) {
+      new cdk.CfnOutput(this, "DashboardCustomUrl", { value: `https://${props.dashboardDomainName}` });
+    }
+    if (props.dashboardAdditionalDomainName) {
+      new cdk.CfnOutput(this, "DashboardAdditionalUrl", { value: `https://${props.dashboardAdditionalDomainName}` });
+    }
     new cdk.CfnOutput(this, "ApiUrl", { value: api.apiEndpoint });
     new cdk.CfnOutput(this, "SessionUrl", { value: `${api.apiEndpoint}/session` });
     new cdk.CfnOutput(this, "LightControlUrl", { value: `${api.apiEndpoint}/control/light` });

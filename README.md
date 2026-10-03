@@ -28,6 +28,12 @@ pnpm run synth -- -c cognitoDomainPrefix=YOUR-GLOBALLY-UNIQUE-PREFIX -c iotEndpo
 
 初回の公開にはCloudFormation bootstrapが必要です。`cdk deploy`、CDK bootstrap、IoTルール切替はAWSリソースを変更するため、このREADMEでは自動実行しません。
 
+## カスタムドメイン
+
+`monitor.app.nagutabby.uk` はRoute 53の公開ホストゾーン`app.nagutabby.uk`から配信し、親の`nagutabby.uk`ゾーンはCloudflareに残します。Cloudflare CLIで`app`のNSレコード4件をRoute 53へ委任します。CloudFront用ACM証明書は`us-east-1`でDNS検証し、CDKはCloudFrontの別名、Cognitoのコールバック／ログアウトURL、Route 53のA／AAAA Aliasを設定します。
+
+ホストゾーンとACM証明書はCDKスタック外で作成します。`cdk.json`の`dashboardDomainName`、`dashboardCertificateArn`、`dashboardHostedZoneName`、`dashboardHostedZoneId`には、その環境の実値を設定してください。証明書検証CNAMEをRoute 53ゾーンに作成し、CloudflareでNS委任して証明書が`ISSUED`になった後に`cdk diff`を確認してから`cdk deploy`します。追加ホスト名を維持する場合は`dashboardAdditionalDomainName`と追加ゾーンの名前・IDも設定します。
+
 ## LINEパラメーター
 
 値はGitやCDK contextに置かず、Standard階層のSecureStringとして登録します。LINE NotifyではなくLINE Messaging APIのチャネルアクセストークンと、push先のLINE user IDを登録してください。
@@ -48,6 +54,6 @@ aws ssm put-parameter --region ap-northeast-1 --name /reptile-monitor/line/to-id
 
 ## コスト
 
-DynamoDBはオンデマンド、LambdaとHTTP APIは従量課金です。サイト配信はCloudFront Price Class 100を使います。東京リージョンで稼働し、独自ドメインは追加しません。IoT Coreの接続・メッセージ・Shadow・ルール処理、CloudFront転送量を実利用量で見積もってください。
+DynamoDBはオンデマンド、LambdaとHTTP APIは従量課金です。サイト配信はCloudFront Price Class 100を使います。東京リージョンで稼働し、独自ドメインのDNSにはRoute 53の公開ホストゾーンを使います。IoT Coreの接続・メッセージ・Shadow・ルール処理、CloudFront転送量、Route 53利用料を実利用量で見積もってください。
 
 AWS Budgetsの月額予算は`monthly-5-usd-alert`（5 USD）です。実績80%・100%、予測100%の各アラートは従来の通知先を維持しています。Budgetは課金を停止しないため、Cost Explorerで実額も確認してください。

@@ -10,8 +10,15 @@ function testApi() {
       is_heater_on: true,
       is_heater_on_changed_at: "2026-09-30T00:00:00+00:00",
     })),
-    setLight: vi.fn(async (isLightOn: boolean) => ({ status: "updated", is_light_on: isLightOn })),
-    getPublicConfig: vi.fn(() => ({ region: "ap-northeast-1", endpoint: "example.iot.ap-northeast-1.amazonaws.com" })),
+    setLight: vi.fn(async (isLightOn: boolean) => ({ status: "updated" as const, is_light_on: isLightOn })),
+    getPublicConfig: vi.fn(() => ({
+      region: "ap-northeast-1",
+      endpoint: "example.iot.ap-northeast-1.amazonaws.com",
+      identityPoolId: "ap-northeast-1:identity-pool",
+      userPoolId: "ap-northeast-1_user-pool",
+      clientId: "public-client",
+      cognitoDomain: "login.example.com",
+    })),
   };
   return { app: createApi(dependencies), dependencies };
 }
