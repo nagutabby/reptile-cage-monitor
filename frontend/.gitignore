@@ -1,0 +1,11 @@
+.env
+.streamlit/secrets.toml
+__pycache__/
+*.pyc
+.venv/
+.pytest_cache/
+.wrangler/
+node_modules/
+frontend/site/dist/
+frontend/site/.astro/
+frontend/site/public/live-client.bundle.js
