@@ -21,6 +21,7 @@ private:
     PubSubClient client_;
     uint32_t nextWifiTryMs_ = 0;
     uint32_t nextMqttTryMs_ = 0;
+    bool wifiConnected_ = false;
     bool justConnected_ = false;
 };
 

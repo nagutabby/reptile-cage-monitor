@@ -23,19 +23,32 @@ void MqttLink::begin() {
     client_.setBufferSize(1536);
     client_.setKeepAlive(60);
     WiFi.mode(WIFI_STA);
+    WiFi.setAutoReconnect(true);
     WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+    nextWifiTryMs_ = millis() + 15000;
+    Serial.println("[WiFi] connecting");
     configTime(0, 0, "ntp.nict.jp", "time.cloudflare.com");
 }
 
 void MqttLink::loop() {
     uint32_t now = millis();
     if (WiFi.status() != WL_CONNECTED) {
+        if (wifiConnected_) {
+            Serial.println("[WiFi] disconnected");
+            wifiConnected_ = false;
+        }
         if ((int32_t)(now - nextWifiTryMs_) >= 0) {
-            WiFi.disconnect();
+            Serial.printf("[WiFi] reconnecting (status %d)\n", static_cast<int>(WiFi.status()));
             WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
             nextWifiTryMs_ = now + 15000;
         }
         return;
+    }
+    if (!wifiConnected_) {
+        wifiConnected_ = true;
+        nextMqttTryMs_ = now;
+        Serial.printf("[WiFi] connected: %s, RSSI %d dBm\n",
+                      WiFi.localIP().toString().c_str(), WiFi.RSSI());
     }
     // X.509 TLS validation requires a usable clock.
     if (time(nullptr) < 1700000000) return;

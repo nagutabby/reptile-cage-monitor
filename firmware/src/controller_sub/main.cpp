@@ -49,7 +49,7 @@ void onMessage(char* topic, byte* payload, unsigned int length) {
         return;
     }
     if (strcmp(topic, SHADOW_GET_ACCEPTED_TOPIC) != 0 && strcmp(topic, SHADOW_DELTA_TOPIC) != 0) return;
-    JsonDocument doc;
+    StaticJsonDocument<1536> doc;
     if (deserializeJson(doc, payload, length)) return;
     uint32_t version = doc["version"] | 0;
     if (version == 0) return;
@@ -183,7 +183,7 @@ void reportState() {
     char eventId[48];
     snprintf(eventId, sizeof(eventId), "controller-%08lx-%lu", (unsigned long)bootId,
              (unsigned long)++sequence);
-    JsonDocument doc;
+    StaticJsonDocument<256> doc;
     doc["event_id"] = eventId;
     doc["observed_at"] = timestamp;
     doc["is_light_on"] = lightOn;
@@ -200,9 +200,9 @@ void reportState() {
 void reportShadow(uint32_t nowMs) {
     if (!lightKnown || !heaterKnown || !mqtt.connected()) return;
     if ((int32_t)(nowMs - nextShadowMs) < 0) return;
-    JsonDocument doc;
-    JsonObject state = doc["state"].to<JsonObject>();
-    JsonObject reported = state["reported"].to<JsonObject>();
+    StaticJsonDocument<256> doc;
+    JsonObject state = doc.createNestedObject("state");
+    JsonObject reported = state.createNestedObject("reported");
     reported["is_light_on"] = lightOn;
     reported["is_heater_on"] = heaterOn;
     char payload[256];

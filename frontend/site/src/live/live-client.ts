@@ -171,9 +171,6 @@ export async function start(config: LiveClientConfig): Promise<void> {
             };
             const age = Date.now() - Date.parse(telemetry.observed_at);
             if (!Number.isFinite(age) || age < 0 || age > 120000) return;
-            setText("temperature", `${telemetry.temp_c.toFixed(1)} ℃`);
-            setText("humidity", `${telemetry.humidity.toFixed(0)} %`);
-            setText("updated", `AWS IoT Coreと最後に同期した時刻: ${new Date(telemetry.observed_at).toLocaleString("ja-JP", { timeZone: "Asia/Tokyo" })}`);
             window.dispatchEvent(new CustomEvent<TelemetryPayload>("reptile-cage-monitor:telemetry", { detail: telemetry }));
           } else if (topic.endsWith("/state")) {
             if (typeof data.is_light_on === "boolean") {

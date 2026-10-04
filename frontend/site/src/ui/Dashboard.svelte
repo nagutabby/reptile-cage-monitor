@@ -40,8 +40,13 @@
   });
   let rangeMinutes = $state(360);
   let latestTelemetry = $state<{ temp_c: number; humidity: number; observed_at: string } | null>(null);
+  let telemetryIsLive = $state(false);
   let message = $state("接続中…");
   let loadingHistory = $state(false);
+
+  function formatObservedAt(value: string): string {
+    return new Date(value).toLocaleString("ja-JP", { timeZone: "Asia/Tokyo" });
+  }
 
   function tokenPayload(token: string): Record<string, unknown> | null {
     try {
@@ -149,7 +154,19 @@
         { query: { minutes: String(rangeMinutes) } },
         { init: { cache: "no-store" } },
       ));
-      message = readings.length ? "" : "選択期間の履歴はありません";
+      if (!telemetryIsLive && readings.length) {
+        const latest = readings.at(-1)!;
+        latestTelemetry = {
+          temp_c: latest.temp_c,
+          humidity: latest.humidity,
+          observed_at: latest.recorded_at,
+        };
+      }
+      message = telemetryIsLive
+        ? ""
+        : latestTelemetry
+          ? "ライブ更新を待っています。保存済みの最新値を表示中です。"
+          : "ライブ値と保存済み履歴を待っています…";
     } catch (error) {
       message = error instanceof Error ? `履歴を読み込めません: ${error.message}` : "履歴を読み込めません";
     } finally {
@@ -186,6 +203,7 @@
     let historyTimer: ReturnType<typeof setInterval>;
     const onTelemetry = (event: Event) => {
       latestTelemetry = (event as CustomEvent<{ temp_c: number; humidity: number; observed_at: string }>).detail;
+      telemetryIsLive = true;
       message = "";
     };
     window.addEventListener("reptile-cage-monitor:telemetry", onTelemetry);
@@ -238,11 +256,17 @@
   <section class="live-section" aria-label="ライブ状態">
     <div class="live-heading">
       <div><p class="eyebrow">LIVE NOW</p><h2>ケージの状態</h2></div>
-      <p class="sync" id="updated">AWS IoT Coreと最後に同期した時刻: --</p>
+      <p class="sync" id="updated">
+        {#if latestTelemetry}
+          {telemetryIsLive ? "AWS IoT Coreから受信:" : "保存済みの最終測定:"} {formatObservedAt(latestTelemetry.observed_at)}
+        {:else}
+          AWS IoT Coreと最後に同期した時刻: --
+        {/if}
+      </p>
     </div>
     <div class="live-grid">
-      <article class="metric-card temp-card"><span>最新温度</span><strong id="temperature">-- ℃</strong></article>
-      <article class="metric-card humidity-card"><span>最新湿度</span><strong id="humidity">-- %</strong></article>
+      <article class="metric-card temp-card"><span>最新温度</span><strong id="temperature">{latestTelemetry ? `${latestTelemetry.temp_c.toFixed(1)} ℃` : "-- ℃"}</strong></article>
+      <article class="metric-card humidity-card"><span>最新湿度</span><strong id="humidity">{latestTelemetry ? `${latestTelemetry.humidity.toFixed(0)} %` : "-- %"}</strong></article>
       <article class="metric-card"><span>ライト</span><div class="control-line"><strong id="light">不明</strong><button type="button" id="light-toggle" class="light-toggle" role="switch" aria-label="ライト" aria-checked="false" disabled={idToken === null}><span class="thumb"></span></button></div><small class="control-status" id="light-control-status" role="status"></small></article>
       <article class="metric-card"><span>パネルヒーター</span><strong id="heater">不明</strong></article>
     </div>
