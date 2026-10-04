@@ -1,7 +1,7 @@
 {
   "name": "reptile-cage-monitor-site",
   "private": true,
-  "packageManager": "pnpm@11.21.0",
+  "packageManager": "pnpm@12.9.1",
   "type": "module",
   "scripts": {
     "build": "esbuild src/live/live-client.ts --bundle --format=iife --global-name=ReptileLive --minify --legal-comments=none --outfile=public/live-client.bundle.js && astro build",
