@@ -39,7 +39,6 @@ namespace {
 
 void logLine(const String& msg) {
     Serial.println(msg);
-    M5.Display.println(msg);
 }
 
 #if 0
@@ -116,8 +115,6 @@ void checkMistPlug() {
 #endif
 
 void runFullCheck() {
-    M5.Display.clear();
-    M5.Display.setCursor(0, 0);
     logLine("=== inspection check start ===");
 
     checkPlug("UVB Plug", PLUG_UVB_MAC);
@@ -126,7 +123,6 @@ void runFullCheck() {
     // checkMistPlug(); // 同上
 
     logLine("=== inspection check done ===");
-    logLine("Press BtnA to run again");
 }
 
 } // namespace
@@ -134,10 +130,7 @@ void runFullCheck() {
 void setup() {
     auto cfg = M5.config();
     M5.begin(cfg);
-
-    M5.Display.setRotation(1);
-    M5.Display.setTextSize(1);
-    M5.Display.setTextColor(TFT_WHITE, TFT_BLACK);
+    M5.Display.setBrightness(0);
 
     Serial.begin(115200);
     delay(1000);
@@ -145,8 +138,6 @@ void setup() {
     NimBLEDevice::init("AtomS3-ReptileCage-Inspect");
     NimBLEDevice::setPower(ESP_PWR_LVL_P9);
 
-    M5.Display.clear();
-    M5.Display.setCursor(0, 0);
     logLine("Reptile Cage Monitor inspection");
     logLine("Auto-running at boot...");
 
@@ -154,9 +145,5 @@ void setup() {
 }
 
 void loop() {
-    M5.update();
-    if (M5.BtnA.wasPressed()) {
-        runFullCheck(); // 点検ツールなので手元での再実行用にBtnAも残す
-    }
     delay(10);
 }

@@ -40,6 +40,7 @@ void sendReading() {
 
 void setup() {
     M5.begin(M5.config());
+    M5.Display.setBrightness(0);
     Serial.begin(115200);
     NimBLEDevice::init("ReptileSensor");
     bootId = esp_random();
@@ -47,7 +48,6 @@ void setup() {
 }
 
 void loop() {
-    M5.update();
     mqtt.loop();
     uint32_t now = millis();
     if (mqtt.connected() && (int32_t)(now - nextReadMs) >= 0) {

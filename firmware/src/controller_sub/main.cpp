@@ -213,6 +213,7 @@ void reportShadow(uint32_t nowMs) {
 
 void setup() {
     M5.begin(M5.config());
+    M5.Display.setBrightness(0);
     Serial.begin(115200);
     NimBLEDevice::init("ReptileController");
     bootId = esp_random();
@@ -222,7 +223,6 @@ void setup() {
 }
 
 void loop() {
-    M5.update();
     mqtt.loop();
     if (mqtt.consumeJustConnected()) {
         desiredLightKnown = false;

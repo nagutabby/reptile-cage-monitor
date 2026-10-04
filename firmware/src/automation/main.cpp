@@ -23,10 +23,7 @@
 //
 // 起動後、処理開始前に必ずNTP時刻同期とUVBプラグへの疎通確認(+リトライ)を行い、
 // 結果をログとして表示してから自動制御ループに入る。
-// AtomS3本体のBtnAを押すと、その時点の同期済み時刻をログに表示する。
-//
-// 画面は常時点灯させず、書き込み直後(起動時)またはBtnA押下時にのみ5秒間点灯し、
-// その後自動的に消灯する。
+// AtomS3の画面は起動時に消灯し、ログはシリアルへ出力する。
 
 #include <M5Unified.h>
 #include <NimBLEDevice.h>
@@ -100,11 +97,6 @@ static const uint32_t METER_RETRY_MAX_MS               = 15UL * 60 * 1000;    //
 // backend/app/config.py の TEMP_MAX_C と一致させること。
 static const float    TEMP_MAX_C                       = 32.0f;
 
-// ---- 画面点灯 ----
-// 書き込み直後(起動時)またはBtnA押下時のみ5秒間点灯し、以後は消灯する。
-static const uint32_t DISPLAY_ON_DURATION_MS           = 5UL * 1000;          // 点灯時間: 5秒
-static const uint8_t  DISPLAY_BRIGHTNESS                = 100;                // 点灯時の輝度
-
 #if 0
 // ライトのみ制御への切替に伴い無効化。復活させる場合はこの節を有効化する。
 static const float    HEATER_OFF_TEMP_C               = 32.0f;                // ヒーターOFFしきい値
@@ -121,15 +113,8 @@ static const uint32_t SENSOR_STALE_MS                 = 30UL * 60 * 1000;     //
 
 namespace {
 
-// 画面下端まで描画済みなら、新しい行を書く前に画面をクリアして先頭に戻す。
-// (パネルのハードウェアスクロールは一部端末で描画崩れが出るため使わない)
 void logLine(const String& msg) {
     Serial.println(msg);
-    if (M5.Display.getCursorY() + M5.Display.fontHeight() > M5.Display.height()) {
-        M5.Display.clear();
-        M5.Display.setCursor(0, 0);
-    }
-    M5.Display.println(msg);
 }
 
 // 失敗回数(0始まり)に応じて指数的に増加する待機時間を計算する。
@@ -161,27 +146,6 @@ bool heaterReportKnown = false;
 bool lastReportedHeaterOn = false;
 uint8_t wifiFailureCount = 0;
 uint32_t nextWifiRetryMs = 0;
-bool displayIsOn = false;
-uint32_t displayOffAtMs = 0;
-
-// 画面を点灯し、DISPLAY_ON_DURATION_MS後に消灯するタイマーをセットする。
-void turnDisplayOn(uint32_t now) {
-    M5.Display.setBrightness(DISPLAY_BRIGHTNESS);
-    displayIsOn = true;
-    displayOffAtMs = now + DISPLAY_ON_DURATION_MS;
-}
-
-void turnDisplayOff() {
-    if (!displayIsOn) return;
-    M5.Display.setBrightness(0);
-    displayIsOn = false;
-}
-
-void checkDisplayTimeout(uint32_t now) {
-    if (displayIsOn && (int32_t)(now - displayOffAtMs) >= 0) {
-        turnDisplayOff();
-    }
-}
 
 #if 0
 // ライトのみ制御への切替に伴い無効化。復活させる場合はこの節を有効化する。
@@ -602,34 +566,16 @@ void checkMeterAndReport(uint32_t now) {
     }
 }
 
-// BtnA押下時に、直近で同期した現在時刻をログに表示する。
-void showCurrentTime() {
-    struct tm timeinfo;
-    if (getLocalTime(&timeinfo, 10)) {
-        char buf[24];
-        strftime(buf, sizeof(buf), "%Y-%m-%d %H:%M:%S", &timeinfo);
-        logLine(String("[Time] ") + buf);
-    } else {
-        logLine("[Time] not synced yet");
-    }
-}
-
 } // namespace
 
 void setup() {
     auto cfg = M5.config();
     M5.begin(cfg);
-
-    M5.Display.setRotation(1);
-    M5.Display.setTextSize(1);
-    M5.Display.setTextColor(TFT_WHITE, TFT_BLACK);
+    M5.Display.setBrightness(0);
 
     Serial.begin(115200);
     delay(1000);
 
-    M5.Display.clear();
-    M5.Display.setCursor(0, 0);
-    turnDisplayOn(millis()); // 書き込み直後は5秒間だけ点灯する
     logLine("Reptile Cage Monitor automation");
 
     // Wi-Fiに接続し、以後は常時接続を維持する(切断しない)。
@@ -654,20 +600,13 @@ void setup() {
 }
 
 void loop() {
-    M5.update();
     uint32_t now = millis();
 
     ensureWifiConnected(now);
     checkNtpResync(now);
     checkLightSchedule(now);
     checkMeterAndReport(now);
-    checkDisplayTimeout(now);
     // checkTempHumidity(now); // ヒーター・ミストの判定。ライトのみ制御への切替に伴い無効化 (上記#if 0参照)
-
-    if (M5.BtnA.wasPressed()) {
-        turnDisplayOn(now);
-        showCurrentTime();
-    }
 
     delay(10);
 }
