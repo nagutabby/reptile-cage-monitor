@@ -1,0 +1,100 @@
+name: Reptile IoT CI/CD
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v6
+        with:
+          version: 11.21.0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24.19.0
+          cache: pnpm
+          cache-dependency-path: |
+            pnpm-lock.yaml
+            frontend/site/pnpm-lock.yaml
+
+      - name: Install root dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Install site dependencies
+        run: pnpm --dir frontend/site install --frozen-lockfile
+
+      - name: Check and build the site
+        run: |
+          pnpm --dir frontend/site run check
+          pnpm --dir frontend/site run build
+
+      - name: Type-check and test infrastructure code
+        run: |
+          pnpm run build
+          pnpm test
+
+  deploy:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: validate
+    runs-on: ubuntu-latest
+    env:
+      CDK_DEFAULT_ACCOUNT: "444167236765"
+      CDK_DEFAULT_REGION: ap-northeast-1
+    concurrency:
+      group: reptile-iot-production
+      cancel-in-progress: false
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v6
+        with:
+          version: 11.21.0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24.19.0
+          cache: pnpm
+          cache-dependency-path: |
+            pnpm-lock.yaml
+            frontend/site/pnpm-lock.yaml
+
+      - name: Install root dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Install site dependencies and build deployable assets
+        run: |
+          pnpm --dir frontend/site install --frozen-lockfile
+          pnpm --dir frontend/site run build
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::444167236765:role/reptile-cage-monitor-github-deploy
+          aws-region: ap-northeast-1
+
+      - name: Synthesize and inspect the change
+        run: |
+          pnpm exec cdk synth --strict
+          pnpm exec cdk diff
+
+      - name: Deploy the stack
+        run: pnpm exec cdk deploy --all --require-approval never

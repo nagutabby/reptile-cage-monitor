@@ -1,6 +1,8 @@
 {
   "app": "node --import tsx bin/reptile-iot.ts",
   "context": {
+    "cognitoDomainPrefix": "reptile-monitor-444167236765",
+    "iotEndpoint": "avwuqaukxpjz3-ats.iot.ap-northeast-1.amazonaws.com",
     "dashboardDomainName": "monitor.app.nagutabby.uk",
     "dashboardCertificateArn": "arn:aws:acm:us-east-1:444167236765:certificate/a9eee80b-1ec3-4290-8a03-de665c3b45c0",
     "dashboardHostedZoneId": "Z08304752J8CINZWOOEB3",

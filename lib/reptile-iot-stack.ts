@@ -61,6 +61,31 @@ export class ReptileIotStack extends cdk.Stack {
   constructor(scope: Construct, id: string, props: ReptileIotStackProps) {
     super(scope, id, props);
 
+    const githubActionsProvider = iam.OpenIdConnectProvider.fromOpenIdConnectProviderArn(
+      this,
+      "GitHubActionsOIDCProvider",
+      `arn:aws:iam::${this.account}:oidc-provider/token.actions.githubusercontent.com`,
+    );
+    const githubDeployRole = new iam.Role(this, "GitHubDeployRole", {
+      roleName: "reptile-cage-monitor-github-deploy",
+      description: "Allows the main branch of nagutabby/reptile-cage-monitor to deploy this CDK stack",
+      maxSessionDuration: cdk.Duration.hours(1),
+      assumedBy: new iam.OpenIdConnectPrincipal(githubActionsProvider, {
+        StringEquals: {
+          "token.actions.githubusercontent.com:aud": "sts.amazonaws.com",
+          "token.actions.githubusercontent.com:sub": "repo:nagutabby/reptile-cage-monitor:ref:refs/heads/main",
+        },
+      }),
+    });
+    githubDeployRole.addToPolicy(new iam.PolicyStatement({
+      actions: ["sts:AssumeRole"],
+      resources: [
+        `arn:aws:iam::${this.account}:role/cdk-hnb659fds-deploy-role-${this.account}-${this.region}`,
+        `arn:aws:iam::${this.account}:role/cdk-hnb659fds-file-publishing-role-${this.account}-${this.region}`,
+        `arn:aws:iam::${this.account}:role/cdk-hnb659fds-lookup-role-${this.account}-${this.region}`,
+      ],
+    }));
+
     if (!props.iotEndpoint || props.iotEndpoint.includes("://")) {
       throw new Error("iotEndpoint must be an AWS IoT data ATS hostname");
     }
@@ -515,7 +540,7 @@ export class ReptileIotStack extends cdk.Stack {
     }));
 
     new s3deploy.BucketDeployment(this, "DashboardAssets", {
-      sources: [s3deploy.Source.asset(path.join(__dirname, "..", "..", "reptile-monitor", "frontend", "site", "dist"))],
+      sources: [s3deploy.Source.asset(path.join(__dirname, "..", "frontend", "site", "dist"))],
       destinationBucket: siteBucket,
       distribution,
       distributionPaths: ["/*"],
