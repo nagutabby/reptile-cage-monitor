@@ -43,10 +43,6 @@
   let message = $state("接続中…");
   let loadingHistory = $state(false);
 
-  function activeRangeLabel() {
-    return ranges.find((range) => range.minutes === rangeMinutes)?.label ?? "6時間";
-  }
-
   function tokenPayload(token: string): Record<string, unknown> | null {
     try {
       const encoded = token.split(".")[1];
@@ -234,7 +230,6 @@
         <span class="login-state">{email ?? "ログイン中"}</span>
         <button class="quiet-button" onclick={logout}>ログアウト</button>
       {:else}
-        <span class="login-state">閲覧モード · 誰でも閲覧できます</span>
         <button class="quiet-button" onclick={login} disabled={!config}>ログイン</button>
       {/if}
     </div>
@@ -246,10 +241,10 @@
       <p class="sync" id="updated">AWS IoT Coreと最後に同期した時刻: --</p>
     </div>
     <div class="live-grid">
-      <article class="metric-card temp-card"><span>最新温度</span><strong id="temperature">-- ℃</strong><small>目安 {tempMin}–{tempMax} ℃</small></article>
-      <article class="metric-card humidity-card"><span>最新湿度</span><strong id="humidity">-- %</strong><small>目安 {humidityMin}–{humidityMax} %</small></article>
+      <article class="metric-card temp-card"><span>最新温度</span><strong id="temperature">-- ℃</strong></article>
+      <article class="metric-card humidity-card"><span>最新湿度</span><strong id="humidity">-- %</strong></article>
       <article class="metric-card"><span>ライト</span><div class="control-line"><strong id="light">不明</strong><button type="button" id="light-toggle" class="light-toggle" role="switch" aria-label="ライト" aria-checked="false" disabled={idToken === null}><span class="thumb"></span></button></div><small class="control-status" id="light-control-status" role="status"></small></article>
-      <article class="metric-card"><span>パネルヒーター</span><strong id="heater">不明</strong><small>温度に応じて自動制御</small></article>
+      <article class="metric-card"><span>パネルヒーター</span><strong id="heater">不明</strong></article>
     </div>
     {#if message}<p class="message" role="status">{message}</p>{/if}
   </section>
@@ -264,14 +259,14 @@
       </div>
     </div>
     <div class="chart-card">
-      <div class="chart-title"><h3>温度</h3><span class="legend"><i class="temp-dot"></i>温度 ℃ <b>・</b><i class="limit-dot"></i>目安範囲 {tempMin}–{tempMax} ℃</span></div>
+      <div class="chart-title"><h3>温度</h3><span class="legend"><i class="temp-dot"></i>温度（℃）</span></div>
       <HistoryChart data={readings} valueKey="temp_c" min={tempMin} max={tempMax} color="#d8a33b" title="温度" />
     </div>
     <div class="chart-card">
-      <div class="chart-title"><h3>湿度</h3><span class="legend"><i class="humidity-dot"></i>湿度 % <b>・</b><i class="limit-dot"></i>目安範囲 {humidityMin}–{humidityMax} %</span></div>
+      <div class="chart-title"><h3>湿度</h3><span class="legend"><i class="humidity-dot"></i>湿度（%）</span></div>
       <HistoryChart data={readings} valueKey="humidity" min={humidityMin} max={humidityMax} color="#72a9df" title="湿度" />
     </div>
-    <footer class="footnote">{#if loadingHistory}履歴を更新しています…{:else}{readings.length.toLocaleString("ja-JP")}件 · 表示範囲 {activeRangeLabel()}{/if}</footer>
+    {#if loadingHistory}<footer class="footnote">履歴を更新しています…</footer>{/if}
   </section>
 </main>
 
@@ -321,11 +316,9 @@
   .chart-card { margin-top: 13px; padding: 17px 19px 12px; border: 1px solid #4a392d; border-radius: 12px; background: #2b211a; }
   .chart-title { display: flex; align-items: center; justify-content: space-between; gap: 14px; margin: 0 0 3px 25px; }
   .legend { display: flex; align-items: center; gap: 7px; color: #c8b7a6; font-size: .75rem; }
-  .legend b { color: #756252; font-weight: 400; }
   .legend i { width: 8px; height: 8px; border-radius: 50%; }
   .temp-dot { background: #d8a33b; }
   .humidity-dot { background: #72a9df; }
-  .limit-dot { background: #c56754; }
   .footnote { margin-top: 14px; text-align: right; }
   @media (max-width: 760px) {
     .shell { padding: 23px 15px 40px; }

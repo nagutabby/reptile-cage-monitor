@@ -82,9 +82,10 @@ export async function start(config: LiveClientConfig): Promise<void> {
 
   function renderLightToggle(): void {
     if (!lightToggle) return;
+    const displayLightOn = pendingLight ?? lightOn;
     lightToggle.disabled = lightOn === null || pendingLight !== null || !config.lightControl?.token;
-    lightToggle.setAttribute("aria-checked", String(lightOn === true));
-    lightToggle.setAttribute("aria-label", lightOn === null ? "ライトの状態を取得中" : `ライトを${lightOn ? "OFF" : "ON"}にする`);
+    lightToggle.setAttribute("aria-checked", String(displayLightOn === true));
+    lightToggle.setAttribute("aria-label", displayLightOn === null ? "ライトの状態を取得中" : `ライトを${displayLightOn ? "OFF" : "ON"}にする`);
   }
 
   lightToggle?.addEventListener("click", async () => {
