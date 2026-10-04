@@ -73,7 +73,7 @@ export class ReptileIotStack extends cdk.Stack {
       assumedBy: new iam.OpenIdConnectPrincipal(githubActionsProvider, {
         StringEquals: {
           "token.actions.githubusercontent.com:aud": "sts.amazonaws.com",
-          "token.actions.githubusercontent.com:sub": "repo:nagutabby/reptile-cage-monitor:ref:refs/heads/main",
+          "token.actions.githubusercontent.com:sub": "repo:nagutabby@62084485/reptile-cage-monitor@1390838113:ref:refs/heads/main",
         },
       }),
     });
