@@ -10,24 +10,24 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@aws-sdk/client-cognito-identity": "^3.1141.0",
-    "@aws-sdk/client-dynamodb": "^3.1141.0",
-    "@aws-sdk/client-iot": "^3.1141.0",
-    "@aws-sdk/client-iot-data-plane": "^3.1141.0",
-    "@aws-sdk/client-ssm": "^3.1141.0",
-    "@aws-sdk/lib-dynamodb": "^3.1141.0",
+    "@aws-sdk/client-cognito-identity": "^3.1146.0",
+    "@aws-sdk/client-dynamodb": "^3.1146.0",
+    "@aws-sdk/client-iot": "^3.1146.0",
+    "@aws-sdk/client-iot-data-plane": "^3.1146.0",
+    "@aws-sdk/client-ssm": "^3.1146.0",
+    "@aws-sdk/lib-dynamodb": "^3.1146.0",
     "@hono/aws-lambda": "^1.0.0",
-    "aws-cdk-lib": "2.256.1",
-    "constructs": "10.6.0",
-    "hono": "^4.10.0"
+    "aws-cdk-lib": "2.272.0",
+    "constructs": "10.8.1",
+    "hono": "^4.13.12"
   },
   "devDependencies": {
-    "@types/aws-lambda": "^8.10.0",
-    "@types/node": "^24.0.0",
+    "@types/aws-lambda": "^8.10.164",
+    "@types/node": "^26.6.4",
     "aws-cdk": "2.1144.0",
-    "esbuild": "^0.25.0",
-    "tsx": "^4.20.0",
-    "typescript": "^5.9.0",
-    "vitest": "^3.2.0"
+    "esbuild": "^0.28.2",
+    "tsx": "^4.23.15",
+    "typescript": "^7.0.2",
+    "vitest": "^5.0.3"
   }
 }

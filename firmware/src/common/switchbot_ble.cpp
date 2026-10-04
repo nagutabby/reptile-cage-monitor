@@ -36,7 +36,7 @@ bool sendCommandOnce(const char* mac, const uint8_t* cmd, size_t cmdLen, Respons
     resp = Response{};
 
     NimBLEClient* pClient = NimBLEDevice::createClient();
-    pClient->setConnectTimeout(connectTimeoutSeconds);
+    pClient->setConnectTimeout(connectTimeoutSeconds * 1000UL);
 
     uint32_t connectStartMs = millis();
     bool connected = pClient->connect(NimBLEAddress(std::string(mac), addrType));
@@ -162,18 +162,17 @@ bool meterScanOnce(const char* mac, float& tempC, uint8_t& humidity, uint32_t sc
     pScan->setInterval(100);
     pScan->setWindow(99);
 
-    // NimBLEScan::start()'s duration is in seconds (it multiplies by 1000
-    // internally) - passing already-converted milliseconds here previously
-    // caused a 5s scan to run for ~5000s ("stuck" scanning).
-    NimBLEScanResults results = pScan->start(scanSeconds, false);
+    // NimBLE-Arduino 2.x uses milliseconds for blocking scans.
+    NimBLEScanResults results = pScan->getResults(scanSeconds * 1000UL, false);
 
     bool found = false;
     for (int i = 0; i < results.getCount() && !found; i++) {
-        NimBLEAdvertisedDevice d = results.getDevice(i);
-        if (!d.getAddress().equals(NimBLEAddress(std::string(mac), BLE_ADDR_PUBLIC))) continue;
-        if (!d.haveManufacturerData()) continue;
+        const NimBLEAdvertisedDevice* d = results.getDevice(i);
+        if (d == nullptr) continue;
+        if (!d->getAddress().equals(NimBLEAddress(std::string(mac), BLE_ADDR_PUBLIC))) continue;
+        if (!d->haveManufacturerData()) continue;
 
-        std::string mfg = d.getManufacturerData();
+        std::string mfg = d->getManufacturerData();
         // WoSensorTHO manufacturer-specific data (Type 0xFF), per meter.md "Other" section:
         //   data[10] fractional temp, data[11] sign+integer temp, data[12] humidity
         if (mfg.length() < 13) continue;

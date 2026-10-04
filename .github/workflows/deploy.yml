@@ -86,7 +86,7 @@ jobs:
           pnpm --dir frontend/site run build
 
       - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v4
+        uses: aws-actions/configure-aws-credentials@v6
         with:
           role-to-assume: arn:aws:iam::444167236765:role/reptile-cage-monitor-github-deploy
           aws-region: ap-northeast-1
