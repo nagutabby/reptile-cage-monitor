@@ -1,4 +1,4 @@
-name: Reptile IoT CI/CD
+name: Reptile Cage Monitor CI/CD
 
 on:
   push:
@@ -55,7 +55,7 @@ jobs:
       CDK_DEFAULT_ACCOUNT: "444167236765"
       CDK_DEFAULT_REGION: ap-northeast-1
     concurrency:
-      group: reptile-iot-production
+      group: reptile-cage-monitor-production
       cancel-in-progress: false
     permissions:
       contents: read

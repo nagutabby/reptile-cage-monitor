@@ -1,25 +1,24 @@
 import { App } from "aws-cdk-lib";
 import { Template } from "aws-cdk-lib/assertions";
 import { describe, expect, it } from "vitest";
-import { ReptileIotStack } from "../lib/reptile-iot-stack";
+import { ReptileCageMonitorStack } from "../lib/reptile-cage-monitor-stack";
 
-describe("ReptileIot stack migration", () => {
-  it("keeps the existing Cognito and device logical IDs while protecting light control", () => {
+describe("ReptileCageMonitor stack", () => {
+  it("uses the project identifiers for IoT, LINE settings, and authenticated light control", () => {
     const app = new App();
-    const stack = new ReptileIotStack(app, "ReptileIot", {
+    const stack = new ReptileCageMonitorStack(app, "ReptileCageMonitor", {
       env: { account: "111111111111", region: "ap-northeast-1" },
-      cognitoDomainPrefix: "reptile-migration-review",
+      cognitoDomainPrefix: "reptile-cage-monitor-review",
       iotEndpoint: "example-ats.iot.ap-northeast-1.amazonaws.com",
     });
     const template = Template.fromStack(stack).toJSON();
 
-    expect(template.Resources).toHaveProperty("ViewerUsers50362268");
-    expect(template.Resources).toHaveProperty("ViewerIdentities");
-    expect(template.Resources).toHaveProperty("SensorThing");
-    expect(template.Resources).toHaveProperty("ControllerThing");
-    expect(template.Resources).toHaveProperty("SensorCertificate");
-    expect(template.Resources).toHaveProperty("ControllerCertificate");
-    expect(template.Resources.ViewerUsers50362268).toMatchObject({ DeletionPolicy: "Retain", UpdateReplacePolicy: "Retain" });
+    Template.fromStack(stack).hasResourceProperties("AWS::IoT::Thing", {
+      ThingName: "reptile-cage-monitor-sensor",
+    });
+    Template.fromStack(stack).hasResourceProperties("AWS::IoT::Thing", {
+      ThingName: "reptile-cage-monitor-controller",
+    });
 
     const resources = template.Resources as Record<string, {
       Type: string;
@@ -27,6 +26,19 @@ describe("ReptileIot stack migration", () => {
       DeletionPolicy?: string;
       UpdateReplacePolicy?: string;
     }>;
+    const userPool = Object.values(resources).find((resource) => resource.Type === "AWS::Cognito::UserPool");
+    expect(userPool).toMatchObject({ DeletionPolicy: "Retain", UpdateReplacePolicy: "Retain" });
+    const policies = Object.values(resources)
+      .filter((resource) => resource.Type === "AWS::IoT::Policy")
+      .map((resource) => JSON.stringify(resource.Properties?.PolicyDocument));
+    expect(policies.join(" ")).toContain("reptile-cage-monitor-sensor");
+    expect(policies.join(" ")).toContain("reptile-cage-monitor-controller");
+    expect(policies.join(" ")).toContain("reptile-cage-monitor/cage/telemetry");
+    expect(policies.join(" ")).toContain("reptile-cage-monitor/cage/state");
+    expect(policies.join(" ")).toContain("$aws/things/reptile-cage-monitor-controller/shadow");
+    expect(JSON.stringify(template)).toContain("/reptile-cage-monitor/line/channel-access-token");
+    expect(JSON.stringify(template)).toContain("/reptile-cage-monitor/line/to-id");
+
     const routes = Object.values(resources).filter((resource) => resource.Type === "AWS::ApiGatewayV2::Route");
     const lightRoute = routes.find((resource) => resource.Properties?.RouteKey === "POST /control/light");
     const historyRoute = routes.find((resource) => resource.Properties?.RouteKey === "GET /api/{proxy+}");

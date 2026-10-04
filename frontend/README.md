@@ -1,4 +1,4 @@
-# reptile-monitor
+# reptile-cage-monitor-site
 
 Astro（Svelte、TypeScript）で作ったケージ監視画面です。AWS上のCloudFrontと非公開S3から配信し、ライブ表示にはAWS IoT CoreのMQTT、履歴にはHono APIとDynamoDBを使います。インフラとLambdaのコードは[リポジトリルート](../README.md)で管理します。
 

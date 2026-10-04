@@ -1,5 +1,5 @@
 {
-  "name": "reptile-monitor-site",
+  "name": "reptile-cage-monitor-site",
   "private": true,
   "packageManager": "pnpm@11.21.0",
   "type": "module",

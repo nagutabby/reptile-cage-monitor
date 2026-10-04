@@ -8,13 +8,13 @@
 #include "switchbot_ble.h"
 
 namespace {
-constexpr char CLIENT_ID[] = "reptile-controller";
-constexpr char STATE_TOPIC[] = "reptile/cage/state";
-constexpr char SHADOW_UPDATE_TOPIC[] = "$aws/things/reptile-controller/shadow/update";
-constexpr char SHADOW_GET_TOPIC[] = "$aws/things/reptile-controller/shadow/get";
-constexpr char SHADOW_GET_ACCEPTED_TOPIC[] = "$aws/things/reptile-controller/shadow/get/accepted";
-constexpr char SHADOW_GET_REJECTED_TOPIC[] = "$aws/things/reptile-controller/shadow/get/rejected";
-constexpr char SHADOW_DELTA_TOPIC[] = "$aws/things/reptile-controller/shadow/update/delta";
+constexpr char CLIENT_ID[] = "reptile-cage-monitor-controller";
+constexpr char STATE_TOPIC[] = "reptile-cage-monitor/cage/state";
+constexpr char SHADOW_UPDATE_TOPIC[] = "$aws/things/reptile-cage-monitor-controller/shadow/update";
+constexpr char SHADOW_GET_TOPIC[] = "$aws/things/reptile-cage-monitor-controller/shadow/get";
+constexpr char SHADOW_GET_ACCEPTED_TOPIC[] = "$aws/things/reptile-cage-monitor-controller/shadow/get/accepted";
+constexpr char SHADOW_GET_REJECTED_TOPIC[] = "$aws/things/reptile-cage-monitor-controller/shadow/get/rejected";
+constexpr char SHADOW_DELTA_TOPIC[] = "$aws/things/reptile-cage-monitor-controller/shadow/update/delta";
 constexpr char UVB_MAC[] = "70:af:09:17:2a:d2";
 constexpr char HEATER_MAC[] = "ac:27:6e:40:5a:a2";
 constexpr uint32_t PLUG_STATE_POLL_INTERVAL_MS = 30000;

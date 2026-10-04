@@ -630,7 +630,7 @@ void setup() {
     M5.Display.clear();
     M5.Display.setCursor(0, 0);
     turnDisplayOn(millis()); // 書き込み直後は5秒間だけ点灯する
-    logLine("Reptile cage automation");
+    logLine("Reptile Cage Monitor automation");
 
     // Wi-Fiに接続し、以後は常時接続を維持する(切断しない)。
     wifiConnected = connectWifiWithRetry();

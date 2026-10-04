@@ -145,14 +145,14 @@ export async function start(config: LiveClientConfig): Promise<void> {
         sessionToken: credentials.SessionToken,
       });
       const mqttClient = mqtt.connect(url, {
-        clientId: `reptile-web-${identityId.replace(/[^A-Za-z0-9]/g, "")}-${crypto.randomUUID().slice(0, 8)}`,
+        clientId: `reptile-cage-monitor-web-${identityId.replace(/[^A-Za-z0-9]/g, "")}-${crypto.randomUUID().slice(0, 8)}`,
         protocolVersion: 4,
         reconnectPeriod: 0,
         connectTimeout: 10000,
       });
       client = mqttClient;
       mqttClient.on("connect", () => {
-        mqttClient.subscribe(["reptile/cage/telemetry", "reptile/cage/state"], { qos: 1 });
+        mqttClient.subscribe(["reptile-cage-monitor/cage/telemetry", "reptile-cage-monitor/cage/state"], { qos: 1 });
       });
       mqttClient.on("message", (topic, bytes) => {
         try {
@@ -173,7 +173,7 @@ export async function start(config: LiveClientConfig): Promise<void> {
             setText("temperature", `${telemetry.temp_c.toFixed(1)} ℃`);
             setText("humidity", `${telemetry.humidity.toFixed(0)} %`);
             setText("updated", `AWS IoT Coreと最後に同期した時刻: ${new Date(telemetry.observed_at).toLocaleString("ja-JP", { timeZone: "Asia/Tokyo" })}`);
-            window.dispatchEvent(new CustomEvent<TelemetryPayload>("reptile:telemetry", { detail: telemetry }));
+            window.dispatchEvent(new CustomEvent<TelemetryPayload>("reptile-cage-monitor:telemetry", { detail: telemetry }));
           } else if (topic.endsWith("/state")) {
             if (typeof data.is_light_on === "boolean") {
               lightOn = data.is_light_on;

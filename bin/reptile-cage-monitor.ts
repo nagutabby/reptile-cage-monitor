@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import * as cdk from "aws-cdk-lib";
-import { ReptileIotStack } from "../lib/reptile-iot-stack";
+import { ReptileCageMonitorStack } from "../lib/reptile-cage-monitor-stack";
 
 const app = new cdk.App();
 const optionalContext = (key: string): string | undefined => {
@@ -22,7 +22,7 @@ const context = (key: string): string => {
   return value;
 };
 
-new ReptileIotStack(app, "ReptileIot", {
+new ReptileCageMonitorStack(app, "ReptileCageMonitor", {
   env: {
     account: process.env.CDK_DEFAULT_ACCOUNT,
     region: "ap-northeast-1",

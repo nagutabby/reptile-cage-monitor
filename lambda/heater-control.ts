@@ -15,7 +15,7 @@ export async function handler(): Promise<{ status: string; temperature_available
   let temperature: number | null = null;
   try {
     const message = await iotData().send(new GetRetainedMessageCommand({
-      topic: "reptile/cage/telemetry",
+      topic: "reptile-cage-monitor/cage/telemetry",
     }));
     temperature = temperatureFromRetainedMessage(message, Date.now());
   } catch (error) {

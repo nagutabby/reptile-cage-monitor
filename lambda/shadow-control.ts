@@ -4,7 +4,7 @@ import {
   UpdateThingShadowCommand,
 } from "@aws-sdk/client-iot-data-plane";
 
-const THING_NAME = "reptile-controller";
+const THING_NAME = "reptile-cage-monitor-controller";
 const JST_OFFSET_MS = 9 * 60 * 60 * 1000;
 
 let dataClient: IoTDataPlaneClient | undefined;

@@ -23,9 +23,10 @@ import * as route53Targets from "aws-cdk-lib/aws-route53-targets";
 import * as scheduler from "aws-cdk-lib/aws-scheduler";
 import * as ssm from "aws-cdk-lib/aws-ssm";
 
-const TELEMETRY_TOPIC = "reptile/cage/telemetry";
-const STATE_TOPIC = "reptile/cage/state";
-const SHADOW_TOPIC = "$aws/things/reptile-controller/shadow";
+const TELEMETRY_TOPIC = "reptile-cage-monitor/cage/telemetry";
+const STATE_TOPIC = "reptile-cage-monitor/cage/state";
+const CONTROLLER_THING_NAME = "reptile-cage-monitor-controller";
+const SHADOW_TOPIC = `$aws/things/${CONTROLLER_THING_NAME}/shadow`;
 const LAMBDA_RUNTIME = lambda.Runtime.NODEJS_24_X;
 
 const recordNameWithinZone = (domainName: string, zoneName: string): string | undefined => {
@@ -37,7 +38,7 @@ const recordNameWithinZone = (domainName: string, zoneName: string): string | un
   return domainName.slice(0, -suffix.length);
 };
 
-export interface ReptileIotStackProps extends cdk.StackProps {
+export interface ReptileCageMonitorStackProps extends cdk.StackProps {
   readonly cognitoDomainPrefix: string;
   readonly iotEndpoint: string;
   /** Optional custom hostname for the CloudFront dashboard. */
@@ -57,8 +58,8 @@ export interface ReptileIotStackProps extends cdk.StackProps {
   readonly lineToParameterName?: string;
 }
 
-export class ReptileIotStack extends cdk.Stack {
-  constructor(scope: Construct, id: string, props: ReptileIotStackProps) {
+export class ReptileCageMonitorStack extends cdk.Stack {
+  constructor(scope: Construct, id: string, props: ReptileCageMonitorStackProps) {
     super(scope, id, props);
 
     const githubActionsProvider = iam.OpenIdConnectProvider.fromOpenIdConnectProviderArn(
@@ -153,7 +154,7 @@ export class ReptileIotStack extends cdk.Stack {
     });
 
     const webPermissions: Array<[string[], string[]]> = [
-      [["iot:Connect"], [topicArn("client", "reptile-web-*")]],
+      [["iot:Connect"], [topicArn("client", "reptile-cage-monitor-web-*")]],
       [["iot:Subscribe"], [topicArn("topicfilter", TELEMETRY_TOPIC), topicArn("topicfilter", STATE_TOPIC)]],
       [["iot:Receive"], [topicArn("topic", TELEMETRY_TOPIC), topicArn("topic", STATE_TOPIC)]],
     ];
@@ -252,8 +253,8 @@ export class ReptileIotStack extends cdk.Stack {
       authorizer,
     });
 
-    const lineTokenParameterName = props.lineTokenParameterName ?? "/reptile-monitor/line/channel-access-token";
-    const lineToParameterName = props.lineToParameterName ?? "/reptile-monitor/line/to-id";
+    const lineTokenParameterName = props.lineTokenParameterName ?? "/reptile-cage-monitor/line/channel-access-token";
+    const lineToParameterName = props.lineToParameterName ?? "/reptile-cage-monitor/line/to-id";
     const parameterArn = (name: string) => this.formatArn({
       service: "ssm", resource: "parameter", resourceName: name.replace(/^\/+/, ""),
     });
@@ -299,7 +300,7 @@ export class ReptileIotStack extends cdk.Stack {
     table.grantReadData(apiFunction);
     apiFunction.addToRolePolicy(new iam.PolicyStatement({
       actions: ["iot:GetThingShadow", "iot:UpdateThingShadow"],
-      resources: [topicArn("thing", "reptile-controller")],
+      resources: [topicArn("thing", CONTROLLER_THING_NAME)],
     }));
     new cloudwatch.Alarm(this, "LightControlFailures", {
       metric: apiFunction.metricErrors(), threshold: 1, evaluationPeriods: 1,
@@ -327,7 +328,7 @@ export class ReptileIotStack extends cdk.Stack {
       });
       fn.addToRolePolicy(new iam.PolicyStatement({
         actions: ["iot:GetThingShadow", "iot:UpdateThingShadow"],
-        resources: [topicArn("thing", "reptile-controller")],
+      resources: [topicArn("thing", CONTROLLER_THING_NAME)],
       }));
       new cloudwatch.Alarm(this, `${constructId}Failures`, {
         metric: fn.metricErrors(), threshold: 1, evaluationPeriods: 1,
@@ -365,13 +366,13 @@ export class ReptileIotStack extends cdk.Stack {
 
     const sensorPolicy = new iot.CfnPolicy(this, "SensorPolicy", { policyDocument: {
       Version: "2012-10-17", Statement: [
-        { Effect: "Allow", Action: "iot:Connect", Resource: topicArn("client", "reptile-sensor") },
+        { Effect: "Allow", Action: "iot:Connect", Resource: topicArn("client", "reptile-cage-monitor-sensor") },
         { Effect: "Allow", Action: ["iot:Publish", "iot:RetainPublish"], Resource: topicArn("topic", TELEMETRY_TOPIC) },
       ],
     } });
     const controllerPolicy = new iot.CfnPolicy(this, "ControllerPolicy", { policyDocument: {
       Version: "2012-10-17", Statement: [
-        { Effect: "Allow", Action: "iot:Connect", Resource: topicArn("client", "reptile-controller") },
+        { Effect: "Allow", Action: "iot:Connect", Resource: topicArn("client", CONTROLLER_THING_NAME) },
         { Effect: "Allow", Action: "iot:Subscribe", Resource: [
           topicArn("topicfilter", `${SHADOW_TOPIC}/get/accepted`),
           topicArn("topicfilter", `${SHADOW_TOPIC}/get/rejected`),
@@ -389,7 +390,7 @@ export class ReptileIotStack extends cdk.Stack {
       ],
     } });
     for (const [name, policy] of [["Sensor", sensorPolicy], ["Controller", controllerPolicy]] as const) {
-      const thingName = `reptile-${name.toLowerCase()}`;
+      const thingName = `reptile-cage-monitor-${name.toLowerCase()}`;
       const thing = new iot.CfnThing(this, `${name}Thing`, { thingName });
       const csr = new cdk.CfnParameter(this, `${name}Csr`, {
         type: "String", description: `PEM CSR for ${name.toLowerCase()} device`,
@@ -426,7 +427,7 @@ export class ReptileIotStack extends cdk.Stack {
       ["Shadow", `${SHADOW_TOPIC}/update/documents`, "shadow"],
     ] as const;
     for (const [name, topic, endpoint] of ruleSpecs) {
-      const ruleName = `reptile_${endpoint}_to_backend`;
+      const ruleName = `reptile_cage_monitor_${endpoint}_to_backend`;
       const rule = new iot.CfnTopicRule(this, `${name}Rule`, {
         ruleName,
         topicRulePayload: {

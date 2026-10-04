@@ -147,7 +147,7 @@ void setup() {
 
     M5.Display.clear();
     M5.Display.setCursor(0, 0);
-    logLine("Reptile cage inspection");
+    logLine("Reptile Cage Monitor inspection");
     logLine("Auto-running at boot...");
 
     runFullCheck(); // 起動時に自動実行 (ボタン操作不要)

@@ -22,7 +22,7 @@ export async function setLight(isLightOn: boolean) {
 
 export async function reportState(state: Record<string, unknown>): Promise<void> {
   await iotData().send(new UpdateThingShadowCommand({
-    thingName: "reptile-controller",
+    thingName: "reptile-cage-monitor-controller",
     payload: Buffer.from(JSON.stringify({ state: { reported: state } })),
   }));
 }

@@ -57,16 +57,16 @@
   }
 
   function useSavedLogin() {
-    const saved = sessionStorage.getItem("reptile.idToken");
+    const saved = sessionStorage.getItem("reptile-cage-monitor.idToken");
     if (!saved) return;
     const payload = tokenPayload(saved);
     if (!payload || Number(payload.exp) <= Date.now() / 1000) {
-      sessionStorage.removeItem("reptile.idToken");
-      sessionStorage.removeItem("reptile.email");
+      sessionStorage.removeItem("reptile-cage-monitor.idToken");
+      sessionStorage.removeItem("reptile-cage-monitor.email");
       return;
     }
     idToken = saved;
-    email = typeof payload.email === "string" ? payload.email : sessionStorage.getItem("reptile.email");
+    email = typeof payload.email === "string" ? payload.email : sessionStorage.getItem("reptile-cage-monitor.email");
   }
 
   async function finishLogin() {
@@ -74,8 +74,8 @@
     const params = new URLSearchParams(window.location.search);
     const code = params.get("code");
     const returnedState = params.get("state");
-    const savedState = sessionStorage.getItem("reptile.oauthState");
-    const verifier = sessionStorage.getItem("reptile.pkceVerifier");
+    const savedState = sessionStorage.getItem("reptile-cage-monitor.oauthState");
+    const verifier = sessionStorage.getItem("reptile-cage-monitor.pkceVerifier");
     if (!code || !returnedState || !savedState || returnedState !== savedState || !verifier) {
       message = params.get("error_description") ?? "ログインの確認に失敗しました。もう一度ログインしてください。";
       return;
@@ -100,10 +100,10 @@
     if (!payload || Number(payload.exp) <= Date.now() / 1000) throw new Error("IDトークンの有効期限を確認できません");
     idToken = tokens.id_token;
     email = typeof payload.email === "string" ? payload.email : null;
-    sessionStorage.setItem("reptile.idToken", idToken);
-    if (email) sessionStorage.setItem("reptile.email", email);
-    sessionStorage.removeItem("reptile.oauthState");
-    sessionStorage.removeItem("reptile.pkceVerifier");
+    sessionStorage.setItem("reptile-cage-monitor.idToken", idToken);
+    if (email) sessionStorage.setItem("reptile-cage-monitor.email", email);
+    sessionStorage.removeItem("reptile-cage-monitor.oauthState");
+    sessionStorage.removeItem("reptile-cage-monitor.pkceVerifier");
     window.history.replaceState({}, "", "/");
   }
 
@@ -118,8 +118,8 @@
     const challenge = btoa(String.fromCharCode(...new Uint8Array(digest)))
       .replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
     const state = random(24);
-    sessionStorage.setItem("reptile.pkceVerifier", verifier);
-    sessionStorage.setItem("reptile.oauthState", state);
+    sessionStorage.setItem("reptile-cage-monitor.pkceVerifier", verifier);
+    sessionStorage.setItem("reptile-cage-monitor.oauthState", state);
     const query = new URLSearchParams({
       response_type: "code",
       client_id: config.clientId,
@@ -134,8 +134,8 @@
 
   function logout() {
     if (!config) return;
-    sessionStorage.removeItem("reptile.idToken");
-    sessionStorage.removeItem("reptile.email");
+    sessionStorage.removeItem("reptile-cage-monitor.idToken");
+    sessionStorage.removeItem("reptile-cage-monitor.email");
     const query = new URLSearchParams({ client_id: config.clientId, logout_uri: `${window.location.origin}/` });
     window.location.assign(`https://${config.cognitoDomain}/logout?${query}`);
   }
@@ -192,7 +192,7 @@
       latestTelemetry = (event as CustomEvent<{ temp_c: number; humidity: number; observed_at: string }>).detail;
       message = "";
     };
-    window.addEventListener("reptile:telemetry", onTelemetry);
+    window.addEventListener("reptile-cage-monitor:telemetry", onTelemetry);
     void (async () => {
       try {
         config = await getJson(apiClient.api.config.$get({}, { init: { cache: "no-store" } }));
@@ -211,7 +211,7 @@
     })();
     return () => {
       stopped = true;
-      window.removeEventListener("reptile:telemetry", onTelemetry);
+      window.removeEventListener("reptile-cage-monitor:telemetry", onTelemetry);
       clearInterval(historyTimer);
       clearInterval(stateTimer);
     };

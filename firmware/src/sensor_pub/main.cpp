@@ -6,8 +6,8 @@
 #include "switchbot_ble.h"
 
 namespace {
-constexpr char CLIENT_ID[] = "reptile-sensor";
-constexpr char TOPIC[] = "reptile/cage/telemetry";
+constexpr char CLIENT_ID[] = "reptile-cage-monitor-sensor";
+constexpr char TOPIC[] = "reptile-cage-monitor/cage/telemetry";
 constexpr char METER_MAC[] = "eb:6b:03:06:2f:57";
 MqttLink mqtt(CLIENT_ID);
 uint32_t bootId;
