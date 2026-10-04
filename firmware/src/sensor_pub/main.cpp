@@ -26,7 +26,7 @@ void sendReading() {
     char eventId[48];
     snprintf(eventId, sizeof(eventId), "sensor-%08lx-%lu", (unsigned long)bootId,
              (unsigned long)++sequence);
-    StaticJsonDocument<256> doc;
+    JsonDocument doc;
     doc["event_id"] = eventId;
     doc["observed_at"] = timestamp;
     doc["temp_c"] = tempC;
