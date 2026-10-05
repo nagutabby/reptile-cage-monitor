@@ -270,6 +270,70 @@
       <article class="metric-card"><span>ライト</span><div class="control-line"><strong id="light">不明</strong><button type="button" id="light-toggle" class="light-toggle" role="switch" aria-label="ライト" aria-checked="false" disabled={idToken === null}><span class="thumb"></span></button></div><small class="control-status" id="light-control-status" role="status"></small></article>
       <article class="metric-card"><span>パネルヒーター</span><strong id="heater">不明</strong></article>
     </div>
+    <article class="metric-card air-conditioner-card">
+      <span>エアコン</span>
+      <form id="air-conditioner-form" class="air-conditioner-form">
+        <div class="air-conditioner-fields">
+          <label class="ac-field">電源
+            <select id="ac-power"><option value="on" selected>ON</option><option value="off">OFF</option></select>
+          </label>
+          <label class="ac-field">運転モード
+            <select id="ac-mode">
+              <option value="auto">自動</option><option value="cool" selected>冷房</option><option value="heat">暖房</option><option value="dry">除湿</option><option value="fan">送風</option>
+            </select>
+          </label>
+          <label class="ac-field">設定温度（℃）
+            <input id="ac-temp" type="number" min="18" max="32" step="0.5" value="27" required />
+          </label>
+          <label class="ac-field">風量
+            <select id="ac-fan">
+              <option value="auto" selected>自動</option><option value="quiet">静音</option><option value="1">1（弱）</option><option value="2">2</option><option value="3">3</option><option value="4">4</option><option value="5">5（強）</option>
+            </select>
+          </label>
+          <label class="ac-field">上下風向
+            <select id="ac-swing-v">
+              <option value="off">固定（現在位置）</option><option value="swing">スイング</option><option value="highest" selected>一番上</option><option value="high">上</option><option value="upper_middle">上中</option><option value="lower_middle">下中</option><option value="low">下</option><option value="lowest">一番下</option><option value="breeze">そよ風</option><option value="circulate">循環</option>
+            </select>
+          </label>
+          <label class="ac-field">左右風向
+            <select id="ac-swing-h">
+              <option value="off" selected>固定（現在位置）</option><option value="swing">スイング</option><option value="wide">ワイド</option><option value="left_max">左端</option><option value="left">左</option><option value="middle">中央</option><option value="right">右</option><option value="right_max">右端</option>
+            </select>
+          </label>
+          <label class="ac-field" id="ac-humidity-field" hidden>湿度設定
+            <select id="ac-humidity">
+              <option value="off" selected>オフ</option><option value="auto">自動</option><option value="40">40%</option><option value="45">45%</option><option value="50">50%</option><option value="55">55%</option><option value="60">60%</option>
+            </select>
+          </label>
+          <label class="ac-field">センサータイマー
+            <select id="ac-eye-timer"><option value="off" selected>オフ</option><option value="1h">1時間</option><option value="3h">3時間</option></select>
+          </label>
+          <label class="ac-field">音
+            <select id="ac-beep"><option value="quiet" selected>小</option><option value="loud">大</option><option value="off">オフ</option></select>
+          </label>
+          <label class="ac-field">本体ランプ
+            <select id="ac-light"><option value="bright" selected>明るい</option><option value="dim">暗い</option><option value="off">オフ</option></select>
+          </label>
+        </div>
+        <fieldset class="ac-options">
+          <legend>追加機能</legend>
+          <label><input id="ac-quiet" type="checkbox" /> 静音運転</label>
+          <label><input id="ac-powerful" type="checkbox" /> パワフル運転</label>
+          <label><input id="ac-econo" type="checkbox" /> 省エネ</label>
+          <label><input id="ac-eye" type="checkbox" /> 人感センサー</label>
+          <label><input id="ac-eye-auto" type="checkbox" /> センサー自動運転</label>
+          <label><input id="ac-purify" type="checkbox" /> 空気清浄</label>
+          <label><input id="ac-mold" type="checkbox" /> 内部クリーン（カビ抑制）</label>
+          <label><input id="ac-clean" type="checkbox" /> 自動清掃</label>
+          <label class="ac-field ac-fresh-field">外気導入
+            <select id="ac-fresh-air"><option value="off" selected>オフ</option><option value="on">オン</option><option value="high">強</option></select>
+          </label>
+        </fieldset>
+        <button type="submit" id="air-conditioner-send" class="ac-send-button" disabled={idToken === null}>この設定を赤外線送信</button>
+      </form>
+      <small id="air-conditioner-control-status" class="control-status" role="status" aria-live="polite"></small>
+      <small class="air-conditioner-note">26.5℃のように0.5℃刻みで指定できます。表示はIR送信結果で、エアコン本体の受信状態は確認できません。</small>
+    </article>
     {#if message}<p class="message" role="status">{message}</p>{/if}
   </section>
 
@@ -321,6 +385,19 @@
   .metric-card small { margin-top: auto; padding-top: 9px; color: #a88f78; font-size: .75rem; }
   .temp-card { background: linear-gradient(145deg, #392d1b, #2b211a 75%); }
   .humidity-card { background: linear-gradient(145deg, #203047, #2b211a 75%); }
+  .air-conditioner-card { min-height: 0; margin-top: 14px; }
+  .air-conditioner-form { margin-top: 14px; }
+  .air-conditioner-fields { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+  .ac-field { display: flex; flex-direction: column; gap: 6px; color: #c8b7a6; font-size: .82rem; }
+  .ac-field select, .ac-field input { width: 100%; min-height: 39px; padding: 7px 9px; border: 1px solid #67574a; border-radius: 7px; background: #211914; color: #f5eee7; font: inherit; }
+  .ac-options { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 18px; margin: 14px 0; padding: 12px; border: 1px solid #4a392d; border-radius: 8px; color: #e5d6c8; font-size: .82rem; }
+  .ac-options legend { padding: 0 6px; color: #c8b7a6; }
+  .ac-options label { display: inline-flex; align-items: center; gap: 6px; }
+  .ac-options input { accent-color: #d8a33b; }
+  .ac-send-button { min-height: 42px; padding: 8px 15px; border: 1px solid #806744; border-radius: 8px; background: #493923; color: #fff4de; cursor: pointer; }
+  .ac-send-button:hover:not(:disabled) { background: #65502e; }
+  .ac-send-button:disabled { opacity: .45; cursor: not-allowed; }
+  .air-conditioner-note { padding-top: 4px !important; }
   .control-line { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
   .control-line strong { margin-top: 14px; }
   .light-toggle { flex: none; width: 48px; height: 28px; padding: 3px; border: 0; border-radius: 14px; background: #77685d; cursor: pointer; transition: background .2s; }
@@ -350,6 +427,7 @@
     .auth-area { width: 100%; justify-content: space-between; }
     .live-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 9px; }
     .metric-card { min-height: 125px; padding: 13px; }
+    .air-conditioner-fields { grid-template-columns: repeat(2, minmax(0, 1fr)); }
     .live-heading, .history-heading { align-items: flex-start; flex-direction: column; }
     .sync { text-align: left; }
     .range-picker { width: 100%; justify-content: space-between; }
