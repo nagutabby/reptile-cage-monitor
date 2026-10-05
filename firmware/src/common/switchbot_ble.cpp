@@ -14,6 +14,37 @@ namespace {
 // volatile-ish holder guarded by the fact only one sendCommand runs at a time.
 Response* g_pendingResponse = nullptr;
 
+struct AddressTypeEntry {
+    char mac[18] = {};
+    uint8_t addrType = BLE_ADDR_PUBLIC;
+    bool valid = false;
+};
+
+AddressTypeEntry g_addressTypes[4];
+size_t g_nextAddressTypeEntry = 0;
+
+uint8_t cachedAddressType(const char* mac) {
+    for (const auto& entry : g_addressTypes) {
+        if (entry.valid && strcmp(entry.mac, mac) == 0) return entry.addrType;
+    }
+    return BLE_ADDR_PUBLIC;
+}
+
+void rememberAddressType(const char* mac, uint8_t addrType) {
+    for (auto& entry : g_addressTypes) {
+        if (entry.valid && strcmp(entry.mac, mac) == 0) {
+            entry.addrType = addrType;
+            return;
+        }
+    }
+
+    AddressTypeEntry& entry = g_addressTypes[g_nextAddressTypeEntry];
+    strlcpy(entry.mac, mac, sizeof(entry.mac));
+    entry.addrType = addrType;
+    entry.valid = true;
+    g_nextAddressTypeEntry = (g_nextAddressTypeEntry + 1) % (sizeof(g_addressTypes) / sizeof(g_addressTypes[0]));
+}
+
 void notifyCallback(NimBLERemoteCharacteristic* /*chr*/, uint8_t* pData, size_t length, bool /*isNotify*/) {
     if (g_pendingResponse == nullptr) return;
     size_t n = length > sizeof(g_pendingResponse->data) ? sizeof(g_pendingResponse->data) : length;
@@ -48,6 +79,7 @@ bool sendCommandOnce(const char* mac, const uint8_t* cmd, size_t cmdLen, Respons
         NimBLEDevice::deleteClient(pClient);
         return false;
     }
+    rememberAddressType(mac, addrType);
 
     bool success = false;
     uint32_t discoveryStartMs = millis();
@@ -106,12 +138,15 @@ bool sendCommandOnce(const char* mac, const uint8_t* cmd, size_t cmdLen, Respons
 bool sendCommand(const char* mac, const uint8_t* cmd, size_t cmdLen, Response& resp,
                   uint32_t timeoutMs, uint8_t maxAttempts, uint32_t retryDelayMs,
                   uint32_t connectTimeoutSeconds) {
-    // Alternate address type each attempt so a wrong first guess doesn't
-    // burn through all the retries on the same mistake.
-    static const uint8_t addrTypes[] = {BLE_ADDR_PUBLIC, BLE_ADDR_RANDOM};
+    // Start with the address type that connected last time, then try the other
+    // type. This avoids paying a connection timeout on every command for plugs
+    // that use a random static BLE address.
+    const uint8_t preferredAddrType = cachedAddressType(mac);
+    const uint8_t otherAddrType = preferredAddrType == BLE_ADDR_PUBLIC
+        ? BLE_ADDR_RANDOM : BLE_ADDR_PUBLIC;
 
     for (uint8_t attempt = 1; attempt <= maxAttempts; attempt++) {
-        uint8_t addrType = addrTypes[(attempt - 1) % 2];
+        uint8_t addrType = ((attempt - 1) % 2 == 0) ? preferredAddrType : otherAddrType;
         uint32_t attemptStartMs = millis();
         bool sent = sendCommandOnce(mac, cmd, cmdLen, resp, timeoutMs, addrType, connectTimeoutSeconds);
         bool ok = sent && resp.ok;
@@ -128,17 +163,21 @@ bool sendCommand(const char* mac, const uint8_t* cmd, size_t cmdLen, Response& r
     return false;
 }
 
-bool plugTurnOn(const char* mac) {
+bool plugTurnOn(const char* mac, uint32_t timeoutMs, uint8_t maxAttempts,
+                uint32_t retryDelayMs, uint32_t connectTimeoutSeconds) {
     const uint8_t cmd[] = {0x57, 0x0F, 0x50, 0x01, 0x01, 0x80};
     Response resp;
-    if (!sendCommand(mac, cmd, sizeof(cmd), resp)) return false;
+    if (!sendCommand(mac, cmd, sizeof(cmd), resp, timeoutMs, maxAttempts,
+                     retryDelayMs, connectTimeoutSeconds)) return false;
     return resp.ok && resp.len >= 2 && resp.data[0] == 0x01 && resp.data[1] == 0x80;
 }
 
-bool plugTurnOff(const char* mac) {
+bool plugTurnOff(const char* mac, uint32_t timeoutMs, uint8_t maxAttempts,
+                 uint32_t retryDelayMs, uint32_t connectTimeoutSeconds) {
     const uint8_t cmd[] = {0x57, 0x0F, 0x50, 0x01, 0x01, 0x00};
     Response resp;
-    if (!sendCommand(mac, cmd, sizeof(cmd), resp)) return false;
+    if (!sendCommand(mac, cmd, sizeof(cmd), resp, timeoutMs, maxAttempts,
+                     retryDelayMs, connectTimeoutSeconds)) return false;
     return resp.ok && resp.len >= 2 && resp.data[0] == 0x01 && resp.data[1] == 0x00;
 }
 

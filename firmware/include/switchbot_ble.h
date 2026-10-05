@@ -35,8 +35,14 @@ bool sendCommand(const char* mac, const uint8_t* cmd, size_t cmdLen,
                   uint32_t connectTimeoutSeconds = 5);
 
 // ---- Plug Mini (0x0F expansion command) ----
-bool plugTurnOn(const char* mac);
-bool plugTurnOff(const char* mac);
+// Button callers can use shorter response/connect limits; periodic/backend
+// commands retain the more conservative defaults.
+bool plugTurnOn(const char* mac, uint32_t timeoutMs = 3000,
+                uint8_t maxAttempts = 3, uint32_t retryDelayMs = 400,
+                uint32_t connectTimeoutSeconds = 5);
+bool plugTurnOff(const char* mac, uint32_t timeoutMs = 3000,
+                 uint8_t maxAttempts = 3, uint32_t retryDelayMs = 400,
+                 uint32_t connectTimeoutSeconds = 5);
 // Returns true and fills `isOn` on success. Parameters allow periodic background
 // polling to use one short attempt without changing command retry behavior.
 bool plugReadState(const char* mac, bool& isOn, uint32_t timeoutMs = 3000,

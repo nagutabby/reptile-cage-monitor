@@ -21,18 +21,25 @@ constexpr uint32_t PLUG_STATE_POLL_INTERVAL_MS = 30000;
 constexpr uint32_t BACKGROUND_READ_TIMEOUT_MS = 1000;
 constexpr uint8_t BACKGROUND_READ_ATTEMPTS = 2; // try both public and random BLE address types
 constexpr uint32_t BACKGROUND_CONNECT_TIMEOUT_SECONDS = 2;
+constexpr uint32_t BUTTON_DESIRED_RETRY_INTERVAL_MS = 5000;
 MqttLink mqtt(CLIENT_ID);
 bool lightOn = false;
 bool heaterOn = false;
 bool lightKnown = false;
 bool heaterKnown = false;
 bool stateDirty = true;
+bool displayDirty = true;
 bool desiredLightOn = false;
 bool desiredHeaterOn = false;
 bool desiredLightKnown = false;
 bool desiredHeaterKnown = false;
 bool lightCommandPending = false;
 uint32_t lightCommandReceivedMs = 0;
+bool buttonDesiredPublishPending = false;
+bool buttonDesiredOn = false;
+uint32_t nextButtonDesiredPublishMs = 0;
+bool buttonIntentAwaitingShadow = false;
+uint32_t buttonIntentBaseVersion = 0;
 bool pollLightNext = true;
 uint32_t shadowVersion = 0;
 uint32_t bootId;
@@ -42,6 +49,59 @@ uint32_t nextShadowMs = 0;
 uint32_t nextShadowGetMs = 0;
 uint32_t nextLightTryMs = 0;
 uint32_t nextHeaterTryMs = 0;
+
+void recordLightState(bool isOn) {
+    if (!lightKnown || lightOn != isOn) {
+        stateDirty = true;
+        displayDirty = true;
+    }
+    lightOn = isOn;
+    lightKnown = true;
+}
+
+void recordHeaterState(bool isOn) {
+    if (!heaterKnown || heaterOn != isOn) {
+        stateDirty = true;
+        displayDirty = true;
+    }
+    heaterOn = isOn;
+    heaterKnown = true;
+}
+
+void renderStatus() {
+    if (!displayDirty) return;
+    displayDirty = false;
+
+    M5.Display.fillScreen(TFT_BLACK);
+    M5.Display.setTextSize(1);
+    M5.Display.setTextColor(TFT_WHITE, TFT_BLACK);
+    M5.Display.setCursor(8, 8);
+    M5.Display.print("CAGE STATUS");
+    M5.Display.drawFastHLine(8, 24, 112, TFT_DARKGREY);
+
+    M5.Display.setCursor(10, 34);
+    M5.Display.setTextColor(TFT_WHITE, TFT_BLACK);
+    M5.Display.print("LIGHT");
+    M5.Display.setCursor(10, 47);
+    M5.Display.setTextSize(2);
+    M5.Display.setTextColor(!lightKnown ? TFT_YELLOW : (lightOn ? TFT_GREEN : TFT_RED), TFT_BLACK);
+    M5.Display.print(!lightKnown ? "UNKNOWN" : (lightOn ? "ON" : "OFF"));
+
+    M5.Display.drawFastHLine(8, 68, 112, TFT_DARKGREY);
+    M5.Display.setTextSize(1);
+    M5.Display.setCursor(10, 78);
+    M5.Display.setTextColor(TFT_WHITE, TFT_BLACK);
+    M5.Display.print("HEATER");
+    M5.Display.setCursor(10, 91);
+    M5.Display.setTextSize(2);
+    M5.Display.setTextColor(!heaterKnown ? TFT_YELLOW : (heaterOn ? TFT_GREEN : TFT_RED), TFT_BLACK);
+    M5.Display.print(!heaterKnown ? "UNKNOWN" : (heaterOn ? "ON" : "OFF"));
+
+    M5.Display.setTextSize(1);
+    M5.Display.setTextColor(TFT_DARKGREY, TFT_BLACK);
+    M5.Display.setCursor(8, 119);
+    M5.Display.print("LIVE BLE STATE");
+}
 
 void onMessage(char* topic, byte* payload, unsigned int length) {
     if (strcmp(topic, SHADOW_GET_REJECTED_TOPIC) == 0) {
@@ -63,17 +123,29 @@ void onMessage(char* topic, byte* payload, unsigned int length) {
         : doc["state"]["desired"].as<JsonObject>();
     if (desired.isNull()) return;
     if (desired["is_light_on"].is<bool>()) {
-        desiredLightOn = desired["is_light_on"].as<bool>();
-        desiredLightKnown = true;
-        if (isDelta) {
-            lightCommandPending = true;
-            lightCommandReceivedMs = millis();
-            // A fresh user/schedule command should not inherit a previous
-            // failed command's retry backoff.
-            nextLightTryMs = lightCommandReceivedMs;
-            Serial.printf("[Light] desired delta received: %s, version=%lu\n",
-                          desiredLightOn ? "ON" : "OFF",
-                          static_cast<unsigned long>(version));
+        // A get response already in flight when the local button was pressed
+        // can contain an older desired value. Keep the button's newer intent
+        // until the Shadow advances past the version seen at the press.
+        if (!buttonIntentAwaitingShadow || version > buttonIntentBaseVersion) {
+            buttonIntentAwaitingShadow = false;
+            desiredLightOn = desired["is_light_on"].as<bool>();
+            desiredLightKnown = true;
+            if (isDelta) {
+                // The local button may already have applied this value before
+                // its delta arrives. Only dispatch a BLE command if state is
+                // unknown or still differs from desired.
+                lightCommandPending = !lightKnown || desiredLightOn != lightOn;
+                if (lightCommandPending) {
+                    lightCommandReceivedMs = millis();
+                    // A fresh user/schedule command should not inherit a previous
+                    // failed command's retry backoff.
+                    nextLightTryMs = lightCommandReceivedMs;
+                }
+                Serial.printf("[Light] desired delta received: %s, version=%lu, apply=%s\n",
+                              desiredLightOn ? "ON" : "OFF",
+                              static_cast<unsigned long>(version),
+                              lightCommandPending ? "yes" : "no");
+            }
         }
     }
     if (desired["is_heater_on"].is<bool>()) {
@@ -87,9 +159,7 @@ void checkPlugStates() {
     bool observed;
     uint32_t readStartMs = millis();
     if (SwitchBotBLE::plugReadState(UVB_MAC, observed)) {
-        if (!lightKnown || lightOn != observed) stateDirty = true;
-        lightOn = observed;
-        lightKnown = true;
+        recordLightState(observed);
         Serial.printf("[State] light verified %s in %lu ms\n",
                       lightOn ? "ON" : "OFF",
                       static_cast<unsigned long>(millis() - readStartMs));
@@ -99,9 +169,7 @@ void checkPlugStates() {
     }
     readStartMs = millis();
     if (SwitchBotBLE::plugReadState(HEATER_MAC, observed)) {
-        if (!heaterKnown || heaterOn != observed) stateDirty = true;
-        heaterOn = observed;
-        heaterKnown = true;
+        recordHeaterState(observed);
         Serial.printf("[State] heater verified %s in %lu ms\n",
                       heaterOn ? "ON" : "OFF",
                       static_cast<unsigned long>(millis() - readStartMs));
@@ -125,13 +193,9 @@ void pollOnePlugState() {
     uint32_t durationMs = millis() - readStartMs;
     if (ok) {
         if (pollLightNext) {
-            if (!lightKnown || lightOn != observed) stateDirty = true;
-            lightOn = observed;
-            lightKnown = true;
+            recordLightState(observed);
         } else {
-            if (!heaterKnown || heaterOn != observed) stateDirty = true;
-            heaterOn = observed;
-            heaterKnown = true;
+            recordHeaterState(observed);
         }
     }
     Serial.printf("[State] background %s read %s in %lu ms\n", name,
@@ -167,6 +231,80 @@ void applyDesired(uint32_t nowMs) {
         bool ok = desiredHeaterOn ? SwitchBotBLE::plugTurnOn(HEATER_MAC) : SwitchBotBLE::plugTurnOff(HEATER_MAC);
         if (ok) checkPlugStates();
     }
+}
+
+void publishButtonDesired(uint32_t nowMs) {
+    if (!buttonDesiredPublishPending || !mqtt.connected() ||
+        (int32_t)(nowMs - nextButtonDesiredPublishMs) < 0) return;
+
+    JsonDocument doc;
+    JsonObject desired = doc["state"]["desired"].to<JsonObject>();
+    desired["is_light_on"] = buttonDesiredOn;
+    char payload[96];
+    serializeJson(doc, payload, sizeof(payload));
+    if (mqtt.publish(SHADOW_UPDATE_TOPIC, payload)) {
+        buttonDesiredPublishPending = false;
+        desiredLightOn = buttonDesiredOn;
+        desiredLightKnown = true;
+        Serial.printf("[Button] desired light %s published to Shadow\n",
+                      buttonDesiredOn ? "ON" : "OFF");
+    } else {
+        nextButtonDesiredPublishMs = nowMs + BUTTON_DESIRED_RETRY_INTERVAL_MS;
+        Serial.println("[Button] desired publish failed; will retry");
+    }
+}
+
+void handleButtonPress() {
+    if (!lightKnown) {
+        bool observed;
+        if (!SwitchBotBLE::plugReadState(UVB_MAC, observed, BACKGROUND_READ_TIMEOUT_MS,
+                                         BACKGROUND_READ_ATTEMPTS, 0,
+                                         BACKGROUND_CONNECT_TIMEOUT_SECONDS)) {
+            Serial.println("[Button] light state read failed; no toggle sent");
+            return;
+        }
+        recordLightState(observed);
+    }
+
+    const bool current = lightOn;
+    const bool target = !current;
+    const uint32_t commandStartMs = millis();
+    Serial.printf("[Button] toggling light %s -> %s\n",
+                  current ? "ON" : "OFF", target ? "ON" : "OFF");
+    // The latest BLE-verified state is cached by the controller, so a button
+    // press only needs the power command. Use short limits for this interactive
+    // path while retaining one retry for transient BLE misses.
+    constexpr uint32_t BUTTON_RESPONSE_TIMEOUT_MS = 1000;
+    constexpr uint8_t BUTTON_COMMAND_ATTEMPTS = 2;
+    constexpr uint32_t BUTTON_RETRY_DELAY_MS = 100;
+    constexpr uint32_t BUTTON_CONNECT_TIMEOUT_SECONDS = 2;
+    bool commandOk = target
+        ? SwitchBotBLE::plugTurnOn(UVB_MAC, BUTTON_RESPONSE_TIMEOUT_MS,
+                                   BUTTON_COMMAND_ATTEMPTS, BUTTON_RETRY_DELAY_MS,
+                                   BUTTON_CONNECT_TIMEOUT_SECONDS)
+        : SwitchBotBLE::plugTurnOff(UVB_MAC, BUTTON_RESPONSE_TIMEOUT_MS,
+                                    BUTTON_COMMAND_ATTEMPTS, BUTTON_RETRY_DELAY_MS,
+                                    BUTTON_CONNECT_TIMEOUT_SECONDS);
+    Serial.printf("[Button] BLE command %s in %lu ms\n",
+                  commandOk ? "ACK" : "FAILED",
+                  static_cast<unsigned long>(millis() - commandStartMs));
+    if (!commandOk) {
+        Serial.println("[Button] BLE light command failed");
+        return;
+    }
+
+    recordLightState(target);
+    renderStatus();
+
+    desiredLightOn = target;
+    desiredLightKnown = true;
+    lightCommandPending = false;
+    buttonDesiredOn = target;
+    buttonDesiredPublishPending = true;
+    nextButtonDesiredPublishMs = millis();
+    buttonIntentAwaitingShadow = true;
+    buttonIntentBaseVersion = shadowVersion;
+    publishButtonDesired(millis());
 }
 
 void reportState() {
@@ -213,16 +351,19 @@ void reportShadow(uint32_t nowMs) {
 
 void setup() {
     M5.begin(M5.config());
-    M5.Display.setBrightness(0);
+    M5.Display.setBrightness(96);
+    renderStatus();
     Serial.begin(115200);
     NimBLEDevice::init("ReptileController");
     bootId = esp_random();
     mqtt.setCallback(onMessage);
     mqtt.begin();
     checkPlugStates();
+    renderStatus();
 }
 
 void loop() {
+    M5.update();
     mqtt.loop();
     if (mqtt.consumeJustConnected()) {
         desiredLightKnown = false;
@@ -235,6 +376,8 @@ void loop() {
         stateDirty = true;
     }
     uint32_t now = millis();
+    if (M5.BtnA.wasPressed()) handleButtonPress();
+    publishButtonDesired(millis());
     if (mqtt.connected() && (!desiredLightKnown || !desiredHeaterKnown) &&
         (int32_t)(now - nextShadowGetMs) >= 0) {
         mqtt.publish(SHADOW_GET_TOPIC, "");
@@ -248,5 +391,6 @@ void loop() {
     }
     reportState();
     reportShadow(now);
+    renderStatus();
     delay(10);
 }
