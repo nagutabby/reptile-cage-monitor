@@ -594,7 +594,7 @@ void setup() {
     }
 
     NimBLEDevice::init("AtomS3-ReptileCage");
-    NimBLEDevice::setPower(ESP_PWR_LVL_P9);
+    NimBLEDevice::setPower(9); // dBm
 
     runStartupConnectivityCheck(); // 処理開始前に必ず疎通確認(+リトライ)を行う
 }

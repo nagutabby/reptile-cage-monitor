@@ -136,7 +136,7 @@ void setup() {
     delay(1000);
 
     NimBLEDevice::init("AtomS3-ReptileCage-Inspect");
-    NimBLEDevice::setPower(ESP_PWR_LVL_P9);
+    NimBLEDevice::setPower(9); // dBm
 
     logLine("Reptile Cage Monitor inspection");
     logLine("Auto-running at boot...");
