@@ -1,28 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
 import { createApi } from "../lambda/api";
-import type { AirConditionerSettings } from "../lambda/api";
-
-const airConditionerSettings: AirConditionerSettings = {
-  power: true,
-  mode: "cool",
-  temp_c: 27,
-  fan: "auto",
-  swing_v: "highest",
-  swing_h: "off",
-  quiet: false,
-  powerful: false,
-  econo: false,
-  eye: false,
-  eye_auto: false,
-  eye_timer: "off",
-  purify: false,
-  mold: false,
-  clean: false,
-  fresh_air: "off",
-  humidity: "off",
-  beep: "quiet",
-  light: "bright",
-};
 
 function testApi() {
   const dependencies = {
@@ -34,10 +11,6 @@ function testApi() {
       is_heater_on_changed_at: "2026-09-30T00:00:00+00:00",
     })),
     setLight: vi.fn(async (isLightOn: boolean) => ({ status: "updated" as const, is_light_on: isLightOn })),
-    setAirConditionerSettings: vi.fn(async (_settings: AirConditionerSettings) => ({
-      status: "queued" as const,
-      command_id: "command-123",
-    })),
     getPublicConfig: vi.fn(() => ({
       region: "ap-northeast-1",
       endpoint: "example.iot.ap-northeast-1.amazonaws.com",
@@ -81,33 +54,5 @@ describe("Hono API", () => {
     });
     expect(result.status).toBe(200);
     expect(dependencies.setLight).toHaveBeenCalledWith(true);
-  });
-
-  it("validates arbitrary Daikin312 settings and queues a command", async () => {
-    const { app, dependencies } = testApi();
-    expect((await app.request("/control/air-conditioner", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ ...airConditionerSettings, mode: "cool", temp_c: 17.5 }),
-    })).status).toBe(400);
-    expect((await app.request("/control/air-conditioner", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ ...airConditionerSettings, temp_c: 27.25 }),
-    })).status).toBe(400);
-    expect((await app.request("/control/air-conditioner", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ ...airConditionerSettings, quiet: true, powerful: true }),
-    })).status).toBe(400);
-
-    const response = await app.request("/control/air-conditioner", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ ...airConditionerSettings, temp_c: 26.5 }),
-    });
-    expect(response.status).toBe(200);
-    expect(await response.json()).toMatchObject({ status: "queued", command_id: "command-123" });
-    expect(dependencies.setAirConditionerSettings).toHaveBeenCalledWith({ ...airConditionerSettings, temp_c: 26.5 });
   });
 });

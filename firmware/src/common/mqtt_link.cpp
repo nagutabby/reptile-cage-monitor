@@ -7,10 +7,8 @@
 #include "iot_config_sensor.h"
 #elif defined(IOT_CONTROLLER)
 #include "iot_config_controller.h"
-#elif defined(IOT_IR_CONTROLLER)
-#include "iot_config_ir_controller.h"
 #else
-#error "Select IOT_SENSOR, IOT_CONTROLLER, or IOT_IR_CONTROLLER"
+#error "Select IOT_SENSOR or IOT_CONTROLLER"
 #endif
 #include "wifi_config.h"
 
@@ -21,11 +19,8 @@ void MqttLink::begin() {
     secureClient_.setCertificate(IOT_DEVICE_CERT);
     secureClient_.setPrivateKey(IOT_PRIVATE_KEY);
     client_.setServer(IOT_ENDPOINT, 8883);
-    // The full Shadow response includes per-field metadata for both desired and
-    // reported. Keep enough room for the AC settings plus the MQTT topic/header.
-    if (!client_.setBufferSize(8192)) {
-        Serial.println("[MQTT] failed to allocate Shadow receive buffer");
-    }
+    // Shadow get/accepted includes desired, reported, and metadata.
+    client_.setBufferSize(1536);
     client_.setKeepAlive(60);
     WiFi.mode(WIFI_STA);
     WiFi.setAutoReconnect(true);

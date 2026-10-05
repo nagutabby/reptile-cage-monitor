@@ -19,9 +19,6 @@ describe("ReptileCageMonitor stack", () => {
     Template.fromStack(stack).hasResourceProperties("AWS::IoT::Thing", {
       ThingName: "reptile-cage-monitor-controller",
     });
-    Template.fromStack(stack).hasResourceProperties("AWS::IoT::Thing", {
-      ThingName: "reptile-cage-monitor-ir-controller",
-    });
 
     const resources = template.Resources as Record<string, {
       Type: string;
@@ -39,21 +36,13 @@ describe("ReptileCageMonitor stack", () => {
     expect(policies.join(" ")).toContain("reptile-cage-monitor/cage/telemetry");
     expect(policies.join(" ")).toContain("reptile-cage-monitor/cage/state");
     expect(policies.join(" ")).toContain("$aws/things/reptile-cage-monitor-controller/shadow");
-    expect(policies.join(" ")).toContain("reptile-cage-monitor-ir-controller");
-    expect(policies.join(" ")).toContain("reptile-cage-monitor/air-conditioner/state");
-    const irPolicy = policies.find((policy) => policy.includes("$aws/things/reptile-cage-monitor-ir-controller/shadow/get/accepted"));
-    expect(irPolicy).toContain("$aws/things/reptile-cage-monitor-ir-controller/shadow/get/accepted");
-    expect(irPolicy).not.toContain("$aws/things/reptile-cage-monitor-controller/shadow");
-    expect(irPolicy).not.toContain("reptile-cage-monitor/cage/telemetry");
     expect(JSON.stringify(template)).toContain("/reptile-cage-monitor/line/channel-access-token");
     expect(JSON.stringify(template)).toContain("/reptile-cage-monitor/line/to-id");
 
     const routes = Object.values(resources).filter((resource) => resource.Type === "AWS::ApiGatewayV2::Route");
     const lightRoute = routes.find((resource) => resource.Properties?.RouteKey === "POST /control/light");
-    const airConditionerRoute = routes.find((resource) => resource.Properties?.RouteKey === "POST /control/air-conditioner");
     const historyRoute = routes.find((resource) => resource.Properties?.RouteKey === "GET /api/{proxy+}");
     expect(lightRoute?.Properties).toMatchObject({ AuthorizationType: "JWT" });
-    expect(airConditionerRoute?.Properties).toMatchObject({ AuthorizationType: "JWT" });
     expect(historyRoute?.Properties).toMatchObject({ AuthorizationType: "NONE" });
   });
 });

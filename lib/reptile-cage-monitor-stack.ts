@@ -25,9 +25,7 @@ import * as ssm from "aws-cdk-lib/aws-ssm";
 
 const TELEMETRY_TOPIC = "reptile-cage-monitor/cage/telemetry";
 const STATE_TOPIC = "reptile-cage-monitor/cage/state";
-const AIR_CONDITIONER_STATE_TOPIC = "reptile-cage-monitor/air-conditioner/state";
 const CONTROLLER_THING_NAME = "reptile-cage-monitor-controller";
-const IR_CONTROLLER_THING_NAME = "reptile-cage-monitor-ir-controller";
 const SHADOW_TOPIC = `$aws/things/${CONTROLLER_THING_NAME}/shadow`;
 const LAMBDA_RUNTIME = lambda.Runtime.NODEJS_24_X;
 
@@ -157,8 +155,8 @@ export class ReptileCageMonitorStack extends cdk.Stack {
 
     const webPermissions: Array<[string[], string[]]> = [
       [["iot:Connect"], [topicArn("client", "reptile-cage-monitor-web-*")]],
-      [["iot:Subscribe"], [topicArn("topicfilter", TELEMETRY_TOPIC), topicArn("topicfilter", STATE_TOPIC), topicArn("topicfilter", AIR_CONDITIONER_STATE_TOPIC)]],
-      [["iot:Receive"], [topicArn("topic", TELEMETRY_TOPIC), topicArn("topic", STATE_TOPIC), topicArn("topic", AIR_CONDITIONER_STATE_TOPIC)]],
+      [["iot:Subscribe"], [topicArn("topicfilter", TELEMETRY_TOPIC), topicArn("topicfilter", STATE_TOPIC)]],
+      [["iot:Receive"], [topicArn("topic", TELEMETRY_TOPIC), topicArn("topic", STATE_TOPIC)]],
     ];
     const viewerRole = new iam.Role(this, "ViewerRole", {
       assumedBy: new iam.FederatedPrincipal("cognito-identity.amazonaws.com", {
@@ -302,7 +300,7 @@ export class ReptileCageMonitorStack extends cdk.Stack {
     table.grantReadData(apiFunction);
     apiFunction.addToRolePolicy(new iam.PolicyStatement({
       actions: ["iot:GetThingShadow", "iot:UpdateThingShadow"],
-      resources: [topicArn("thing", CONTROLLER_THING_NAME), topicArn("thing", IR_CONTROLLER_THING_NAME)],
+      resources: [topicArn("thing", CONTROLLER_THING_NAME)],
     }));
     new cloudwatch.Alarm(this, "LightControlFailures", {
       metric: apiFunction.metricErrors(), threshold: 1, evaluationPeriods: 1,
@@ -316,12 +314,6 @@ export class ReptileCageMonitorStack extends cdk.Stack {
       path: "/control/light",
       methods: [apigwv2.HttpMethod.POST],
       integration: new apigwv2Integrations.HttpLambdaIntegration("LightControlIntegration", apiFunction),
-      authorizer,
-    });
-    api.addRoutes({
-      path: "/control/air-conditioner",
-      methods: [apigwv2.HttpMethod.POST],
-      integration: new apigwv2Integrations.HttpLambdaIntegration("AirConditionerControlIntegration", apiFunction),
       authorizer,
     });
 
@@ -415,42 +407,6 @@ export class ReptileCageMonitorStack extends cdk.Stack {
       });
       new cdk.CfnOutput(this, `${name}CertificateArn`, { value: certificate.attrArn });
     }
-
-    const irControllerPolicy = new iot.CfnPolicy(this, "IRControllerPolicy", { policyDocument: {
-      Version: "2012-10-17", Statement: [
-        { Effect: "Allow", Action: "iot:Connect", Resource: topicArn("client", IR_CONTROLLER_THING_NAME) },
-        { Effect: "Allow", Action: "iot:Subscribe", Resource: [
-          topicArn("topicfilter", `$aws/things/${IR_CONTROLLER_THING_NAME}/shadow/get/accepted`),
-          topicArn("topicfilter", `$aws/things/${IR_CONTROLLER_THING_NAME}/shadow/get/rejected`),
-          topicArn("topicfilter", `$aws/things/${IR_CONTROLLER_THING_NAME}/shadow/update/delta`),
-        ] },
-        { Effect: "Allow", Action: "iot:Receive", Resource: [
-          topicArn("topic", `$aws/things/${IR_CONTROLLER_THING_NAME}/shadow/get/accepted`),
-          topicArn("topic", `$aws/things/${IR_CONTROLLER_THING_NAME}/shadow/get/rejected`),
-          topicArn("topic", `$aws/things/${IR_CONTROLLER_THING_NAME}/shadow/update/delta`),
-        ] },
-        { Effect: "Allow", Action: ["iot:Publish", "iot:RetainPublish"], Resource: topicArn("topic", AIR_CONDITIONER_STATE_TOPIC) },
-        { Effect: "Allow", Action: "iot:Publish", Resource: [
-          topicArn("topic", `$aws/things/${IR_CONTROLLER_THING_NAME}/shadow/update`),
-          topicArn("topic", `$aws/things/${IR_CONTROLLER_THING_NAME}/shadow/get`),
-        ] },
-      ],
-    } });
-    new iot.CfnThing(this, "IRControllerThing", { thingName: IR_CONTROLLER_THING_NAME });
-    const irControllerCsr = new cdk.CfnParameter(this, "IRControllerCsr", {
-      type: "String", description: "PEM CSR for the air-conditioner IR controller",
-    });
-    const irControllerCertificate = new iot.CfnCertificate(this, "IRControllerCertificate", {
-      certificateSigningRequest: irControllerCsr.valueAsString, status: "ACTIVE",
-    });
-    irControllerCertificate.applyRemovalPolicy(cdk.RemovalPolicy.RETAIN);
-    new iot.CfnThingPrincipalAttachment(this, "IRControllerThingCertificate", {
-      thingName: IR_CONTROLLER_THING_NAME, principal: irControllerCertificate.attrArn,
-    });
-    new iot.CfnPolicyPrincipalAttachment(this, "IRControllerPolicyCertificate", {
-      policyName: irControllerPolicy.ref, principal: irControllerCertificate.attrArn,
-    });
-    new cdk.CfnOutput(this, "IRControllerCertificateArn", { value: irControllerCertificate.attrArn });
 
     const failures = new s3.Bucket(this, "RuleFailures", {
       blockPublicAccess: s3.BlockPublicAccess.BLOCK_ALL,

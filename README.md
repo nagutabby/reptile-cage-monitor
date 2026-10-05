@@ -4,7 +4,7 @@
 
 ## ディレクトリ
 
-- `firmware/`: AtomS3のセンサー、ライト／ヒーターコントローラー、エアコンIRコントローラー、検査用ファームウェア
+- `firmware/`: AtomS3のセンサー、コントローラー、検査用ファームウェア
 - `frontend/site/`: AstroとSvelteの監視画面
 - `bin/`、`lib/`、`lambda/`: AWS CDKとLambda
 - `test/`: CDK・Lambdaのテスト
@@ -12,7 +12,7 @@
 ## 構成
 
 - CloudFrontはOAC経由で非公開S3のAstroサイトを配信し、`/api/*`、`/control/*`、`/session`をHTTP APIへ転送します。
-- Hono API Lambdaは履歴・現在状態・公開Cognito設定を返します。ライト操作とエアコン設定の送信指示はAPI GatewayのCognito JWT authorizerで保護されます。
+- Hono API Lambdaは履歴・現在状態・公開Cognito設定を返します。ライト操作はAPI GatewayのCognito JWT authorizerで保護されます。
 - IoT Coreのテレメトリ、機器状態、Device Shadowルールはイベント用Lambdaを直接呼びます。ヒーターは1分ごと、ライトはJST 7時と19時に動作します。
 - DynamoDBはオンデマンド課金で、履歴、機器状態、Shadow、通知状態を保存します。履歴にTTLは設定しません。
 - LINE Messaging APIのチャネルアクセストークンと送信先IDはParameter Store Standard SecureStringから読みます。
@@ -36,23 +36,20 @@ pnpm run synth -- -c cognitoDomainPrefix=YOUR-GLOBALLY-UNIQUE-PREFIX -c iotEndpo
 ```sh
 pio run --project-dir firmware -e sensor-pub
 pio run --project-dir firmware -e controller-sub
-pio run --project-dir firmware -e ir-controller
 ```
 
 この構成は旧スタックからの再構築用です。`ReptileCageMonitor` は旧スタックとは別のCloudFormationスタックIDです。旧スタックと保持リソースを削除してから作成するため、DynamoDBの履歴、Cognitoユーザー、IoT証明書は引き継がれません。ViewerEmailで招待ユーザーを作り直し、機器を新しい証明書で再設定してください。Route 53のホストゾーン、ACM証明書、AWS IoT endpoint、CDK bootstrap、GitHub OIDC providerはスタック外に残します。
 
-再構築後の通常の変更では、`pnpm run synth`でテンプレートを生成し、`cdk diff`を確認してから適用します。`cdk deploy`はAWSリソースを変更します。初回はAWS CLIの`sso-admin-profile`でログインし、ViewerEmailと各端末のCSRを指定します。機器の秘密鍵は端末ごとに別々にし、CSRのCNを対応するThing名に合わせてください。
+再構築後の通常の変更では、`pnpm run synth`でテンプレートを生成し、`cdk diff`を確認してから適用します。`cdk deploy`はAWSリソースを変更します。初回はAWS CLIの`sso-admin-profile`でログインし、ViewerEmailと2台分のCSRを指定します。機器の既存秘密鍵を保ったまま、CSRを新Thing名で作成してください。
 
 ```sh
 openssl req -new -key devices/sensor.key -out devices/sensor.csr -subj "/CN=reptile-cage-monitor-sensor"
 openssl req -new -key devices/controller.key -out devices/controller.csr -subj "/CN=reptile-cage-monitor-controller"
-openssl req -new -key devices/ir-controller.key -out devices/ir-controller.csr -subj "/CN=reptile-cage-monitor-ir-controller"
 aws sso login --profile sso-admin-profile
 AWS_PROFILE=sso-admin-profile pnpm exec cdk deploy ReptileCageMonitor \
   --parameters ReptileCageMonitor:ViewerEmail="$VIEWER_EMAIL" \
   --parameters ReptileCageMonitor:SensorCsr="$(cat devices/sensor.csr)" \
-  --parameters ReptileCageMonitor:ControllerCsr="$(cat devices/controller.csr)" \
-  --parameters ReptileCageMonitor:IRControllerCsr="$(cat devices/ir-controller.csr)"
+  --parameters ReptileCageMonitor:ControllerCsr="$(cat devices/controller.csr)"
 ```
 
 LINE Messaging APIのSecureStringは新しい`/reptile-cage-monitor/line/`パスに登録します。再構築時に既存値を移行する場合は、値を端末出力やシェル履歴に表示せず、新しいSecureStringとして保存してから旧パラメーターを削除してください。
@@ -78,8 +75,7 @@ aws ssm put-parameter --region ap-northeast-1 --name /reptile-cage-monitor/line/
 
 ## 機器仕様
 
-- Thing／MQTT client IDは`reptile-cage-monitor-sensor`、`reptile-cage-monitor-controller`、`reptile-cage-monitor-ir-controller`です。エアコンIRコントローラーは専用証明書と最小権限ポリシーを使い、自分のclassic Shadowで指示を受けます。送信結果は`reptile-cage-monitor/air-conditioner/state`へpublishします。
-- Webのエアコン操作はDaikin312の運転状態一式を専用Thing Shadowの`desired`へ書き込みます。AtomS3はIRremoteESP8266の`IRDaikin312`で信号を生成して送信します。結果表示はIR送信の成否を示し、エアコン本体が信号を受信したことまでは確認しません。
+- Thing／MQTT client IDは`reptile-cage-monitor-sensor`と`reptile-cage-monitor-controller`です。MQTTトピックは`reptile-cage-monitor/cage/telemetry`と`reptile-cage-monitor/cage/state`、Device Shadowは`reptile-cage-monitor-controller` Thingのclassic Shadowを使用します。
 - 温度が32°C未満ならヒーターON、32°C以上ならOFFです。3分を超えて新しい温度を受け取れない場合はヒーターONにします。
 - 新しいShadowにライト状態がない場合、ヒーター処理が現時刻に合うライト状態を初期設定します。ライトの予定制御はJST 7:00 ON、19:00 OFFで、手動操作は次の予定時刻まで有効です。
 - 24–32°C、湿度40–90%から外れた最初の値でLINE通知し、異常が続く場合は1時間間隔で再通知します。機器同期通知は実装しません。
