@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { createApi } from "../lambda/api";
+import { createApi, type AirConditionerCommand } from "../lambda/api";
 
 function testApi() {
   const dependencies = {
@@ -11,6 +11,10 @@ function testApi() {
       is_heater_on_changed_at: "2026-09-30T00:00:00+00:00",
     })),
     setLight: vi.fn(async (isLightOn: boolean) => ({ status: "updated" as const, is_light_on: isLightOn })),
+    setAirConditionerPreset: vi.fn(async (_command: AirConditionerCommand) => ({
+      status: "queued" as const,
+      command_id: "command-123",
+    })),
     getPublicConfig: vi.fn(() => ({
       region: "ap-northeast-1",
       endpoint: "example.iot.ap-northeast-1.amazonaws.com",
@@ -55,4 +59,5 @@ describe("Hono API", () => {
     expect(result.status).toBe(200);
     expect(dependencies.setLight).toHaveBeenCalledWith(true);
   });
+
 });

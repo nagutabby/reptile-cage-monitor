@@ -25,7 +25,9 @@ import * as ssm from "aws-cdk-lib/aws-ssm";
 
 const TELEMETRY_TOPIC = "reptile-cage-monitor/cage/telemetry";
 const STATE_TOPIC = "reptile-cage-monitor/cage/state";
+const AIR_CONDITIONER_STATE_TOPIC = "reptile-cage-monitor/air-conditioner/state";
 const CONTROLLER_THING_NAME = "reptile-cage-monitor-controller";
+const IR_CONTROLLER_THING_NAME = "reptile-cage-monitor-ir-controller";
 const SHADOW_TOPIC = `$aws/things/${CONTROLLER_THING_NAME}/shadow`;
 const LAMBDA_RUNTIME = lambda.Runtime.NODEJS_24_X;
 
@@ -175,6 +177,15 @@ export class ReptileCageMonitorStack extends cdk.Stack {
         role.addToPolicy(new iam.PolicyStatement({ actions, resources }));
       }
     }
+    const airConditionerReadPermissions = [
+      ["iot:Subscribe"], [topicArn("topicfilter", AIR_CONDITIONER_STATE_TOPIC)],
+    ] as const;
+    const airConditionerReceivePermissions = [
+      ["iot:Receive"], [topicArn("topic", AIR_CONDITIONER_STATE_TOPIC)],
+    ] as const;
+    for (const [actions, resources] of [airConditionerReadPermissions, airConditionerReceivePermissions]) {
+      viewerRole.addToPolicy(new iam.PolicyStatement({ actions: [...actions], resources: [...resources] }));
+    }
     new cognito.CfnIdentityPoolRoleAttachment(this, "ViewerRoleAttachment", {
       identityPoolId: identityPool.ref,
       roles: { authenticated: viewerRole.roleArn, unauthenticated: guestRole.roleArn },
@@ -183,7 +194,11 @@ export class ReptileCageMonitorStack extends cdk.Stack {
       policyName: `${this.stackName}-web-readonly`,
       policyDocument: {
         Version: "2012-10-17",
-        Statement: webPermissions.map(([actions, resources]) => ({ Effect: "Allow", Action: actions, Resource: resources })),
+        Statement: [
+          ...webPermissions.map(([actions, resources]) => ({ Effect: "Allow", Action: actions, Resource: resources })),
+          { Effect: "Allow", Action: [...airConditionerReadPermissions[0]], Resource: [...airConditionerReadPermissions[1]] },
+          { Effect: "Allow", Action: [...airConditionerReceivePermissions[0]], Resource: [...airConditionerReceivePermissions[1]] },
+        ],
       },
     });
 
@@ -300,7 +315,7 @@ export class ReptileCageMonitorStack extends cdk.Stack {
     table.grantReadData(apiFunction);
     apiFunction.addToRolePolicy(new iam.PolicyStatement({
       actions: ["iot:GetThingShadow", "iot:UpdateThingShadow"],
-      resources: [topicArn("thing", CONTROLLER_THING_NAME)],
+      resources: [topicArn("thing", CONTROLLER_THING_NAME), topicArn("thing", IR_CONTROLLER_THING_NAME)],
     }));
     new cloudwatch.Alarm(this, "LightControlFailures", {
       metric: apiFunction.metricErrors(), threshold: 1, evaluationPeriods: 1,
@@ -314,6 +329,12 @@ export class ReptileCageMonitorStack extends cdk.Stack {
       path: "/control/light",
       methods: [apigwv2.HttpMethod.POST],
       integration: new apigwv2Integrations.HttpLambdaIntegration("LightControlIntegration", apiFunction),
+      authorizer,
+    });
+    api.addRoutes({
+      path: "/control/air-conditioner",
+      methods: [apigwv2.HttpMethod.POST],
+      integration: new apigwv2Integrations.HttpLambdaIntegration("AirConditionerControlIntegration", apiFunction),
       authorizer,
     });
 
@@ -389,11 +410,34 @@ export class ReptileCageMonitorStack extends cdk.Stack {
         ] },
       ],
     } });
-    for (const [name, policy] of [["Sensor", sensorPolicy], ["Controller", controllerPolicy]] as const) {
-      const thingName = `reptile-cage-monitor-${name.toLowerCase()}`;
+    const irControllerShadowTopic = `$aws/things/${IR_CONTROLLER_THING_NAME}/shadow`;
+    const irControllerPolicy = new iot.CfnPolicy(this, "IRControllerPolicy", { policyDocument: {
+      Version: "2012-10-17", Statement: [
+        { Effect: "Allow", Action: "iot:Connect", Resource: topicArn("client", IR_CONTROLLER_THING_NAME) },
+        { Effect: "Allow", Action: "iot:Subscribe", Resource: [
+          topicArn("topicfilter", `${irControllerShadowTopic}/get/accepted`),
+          topicArn("topicfilter", `${irControllerShadowTopic}/get/rejected`),
+          topicArn("topicfilter", `${irControllerShadowTopic}/update/delta`),
+        ] },
+        { Effect: "Allow", Action: "iot:Receive", Resource: [
+          topicArn("topic", `${irControllerShadowTopic}/get/accepted`),
+          topicArn("topic", `${irControllerShadowTopic}/get/rejected`),
+          topicArn("topic", `${irControllerShadowTopic}/update/delta`),
+        ] },
+        { Effect: "Allow", Action: ["iot:Publish", "iot:RetainPublish"], Resource: topicArn("topic", AIR_CONDITIONER_STATE_TOPIC) },
+        { Effect: "Allow", Action: "iot:Publish", Resource: [
+          topicArn("topic", `${irControllerShadowTopic}/update`), topicArn("topic", `${irControllerShadowTopic}/get`),
+        ] },
+      ],
+    } });
+    for (const [name, thingName, policy] of [
+      ["Sensor", "reptile-cage-monitor-sensor", sensorPolicy],
+      ["Controller", CONTROLLER_THING_NAME, controllerPolicy],
+      ["IRController", IR_CONTROLLER_THING_NAME, irControllerPolicy],
+    ] as const) {
       const thing = new iot.CfnThing(this, `${name}Thing`, { thingName });
       const csr = new cdk.CfnParameter(this, `${name}Csr`, {
-        type: "String", description: `PEM CSR for ${name.toLowerCase()} device`,
+        type: "String", description: `PEM CSR for ${name === "IRController" ? "IR controller" : name.toLowerCase()} device`,
       });
       const certificate = new iot.CfnCertificate(this, `${name}Certificate`, {
         certificateSigningRequest: csr.valueAsString, status: "ACTIVE",
@@ -564,6 +608,7 @@ export class ReptileCageMonitorStack extends cdk.Stack {
     new cdk.CfnOutput(this, "ApiUrl", { value: api.apiEndpoint });
     new cdk.CfnOutput(this, "SessionUrl", { value: `${api.apiEndpoint}/session` });
     new cdk.CfnOutput(this, "LightControlUrl", { value: `${api.apiEndpoint}/control/light` });
+    new cdk.CfnOutput(this, "AirConditionerControlUrl", { value: `${api.apiEndpoint}/control/air-conditioner` });
     new cdk.CfnOutput(this, "ReadingsTableName", { value: table.tableName });
     new cdk.CfnOutput(this, "LineTokenParameter", { value: lineTokenParameterName });
     new cdk.CfnOutput(this, "LineToParameter", { value: lineToParameterName });

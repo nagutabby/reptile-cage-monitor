@@ -270,6 +270,37 @@
       <article class="metric-card"><span>ライト</span><div class="control-line"><strong id="light">不明</strong><button type="button" id="light-toggle" class="light-toggle" role="switch" aria-label="ライト" aria-checked="false" disabled={idToken === null}><span class="thumb"></span></button></div><small class="control-status" id="light-control-status" role="status"></small></article>
       <article class="metric-card"><span>パネルヒーター</span><strong id="heater">不明</strong></article>
     </div>
+    <article class="metric-card air-conditioner-card">
+      <span>エアコンIRプリセット</span>
+      <form id="air-conditioner-form" class="air-conditioner-form">
+        <div class="air-conditioner-fields">
+          <label class="ac-field">冷房 or 暖房
+            <select id="ac-mode"><option value="cool" selected>冷房</option><option value="heat">暖房</option></select>
+          </label>
+          <label class="ac-field">設定温度（0.5℃刻み）
+            <input id="ac-temp" type="number" min="18" max="32" step="0.5" value="27" required />
+          </label>
+          <label class="ac-field">上下の風向
+            <select id="ac-swing-v">
+              <option value="off">固定（現在位置）</option><option value="swing">スイング</option><option value="highest">一番上</option><option value="high">上</option><option value="upper_middle">上中</option><option value="lower_middle">下中</option><option value="low">下</option><option value="lowest">一番下</option><option value="breeze">そよ風</option><option value="circulate">循環</option>
+            </select>
+          </label>
+          <label class="ac-field">風量
+            <select id="ac-fan"><option value="auto" selected>自動</option><option value="quiet">静音</option><option value="1">1（弱）</option><option value="2">2</option><option value="3">3</option><option value="4">4</option><option value="5">5（強）</option></select>
+          </label>
+          <label class="ac-field ac-name-field">プリセット名
+            <input id="ac-preset-name" type="text" maxlength="48" placeholder="名前を入力" />
+          </label>
+        </div>
+        <small id="ac-preset-availability" class="preset-availability" aria-live="polite">この組み合わせは未学習です</small>
+        <div class="ac-actions">
+          <button type="button" id="air-conditioner-learn" class="ac-button" disabled={idToken === null}>リモコン信号を学習</button>
+          <button type="button" id="air-conditioner-send" class="ac-button ac-send-button" disabled={idToken === null}>このプリセットを送信</button>
+        </div>
+      </form>
+      <small id="air-conditioner-control-status" class="control-status" role="status" aria-live="polite"></small>
+      <small class="air-conditioner-note">選んだ4項目の組み合わせごとに名前と学習済み生データをこのブラウザーに保存します。学習時はリモコンをUnit IRに向けて操作してください。</small>
+    </article>
     {#if message}<p class="message" role="status">{message}</p>{/if}
   </section>
 
@@ -321,6 +352,18 @@
   .metric-card small { margin-top: auto; padding-top: 9px; color: #a88f78; font-size: .75rem; }
   .temp-card { background: linear-gradient(145deg, #392d1b, #2b211a 75%); }
   .humidity-card { background: linear-gradient(145deg, #203047, #2b211a 75%); }
+  .air-conditioner-card { min-height: 0; margin-top: 14px; }
+  .air-conditioner-form { margin-top: 14px; }
+  .air-conditioner-fields { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+  .ac-field { display: flex; flex-direction: column; gap: 6px; color: #c8b7a6; font-size: .82rem; }
+  .ac-field select, .ac-field input { width: 100%; min-height: 39px; padding: 7px 9px; border: 1px solid #67574a; border-radius: 7px; background: #211914; color: #f5eee7; font: inherit; }
+  .ac-name-field { grid-column: span 2; }
+  .preset-availability { display: block; margin-top: 10px !important; padding-top: 0 !important; }
+  .ac-actions { display: flex; flex-wrap: wrap; gap: 9px; margin-top: 12px; }
+  .ac-button { min-height: 42px; padding: 8px 15px; border: 1px solid #806744; border-radius: 8px; background: #493923; color: #fff4de; cursor: pointer; }
+  .ac-button:hover:not(:disabled) { background: #65502e; }
+  .ac-button:disabled { opacity: .45; cursor: not-allowed; }
+  .air-conditioner-note { padding-top: 8px !important; }
   .control-line { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
   .control-line strong { margin-top: 14px; }
   .light-toggle { flex: none; width: 48px; height: 28px; padding: 3px; border: 0; border-radius: 14px; background: #77685d; cursor: pointer; transition: background .2s; }
@@ -350,6 +393,8 @@
     .auth-area { width: 100%; justify-content: space-between; }
     .live-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 9px; }
     .metric-card { min-height: 125px; padding: 13px; }
+    .air-conditioner-fields { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .ac-name-field { grid-column: span 2; }
     .live-heading, .history-heading { align-items: flex-start; flex-direction: column; }
     .sync { text-align: left; }
     .range-picker { width: 100%; justify-content: space-between; }

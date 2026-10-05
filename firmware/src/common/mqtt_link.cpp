@@ -7,8 +7,10 @@
 #include "iot_config_sensor.h"
 #elif defined(IOT_CONTROLLER)
 #include "iot_config_controller.h"
+#elif defined(IOT_IR_CONTROLLER)
+#include "iot_config_ir_controller.h"
 #else
-#error "Select IOT_SENSOR or IOT_CONTROLLER"
+#error "Select IOT_SENSOR, IOT_CONTROLLER, or IOT_IR_CONTROLLER"
 #endif
 #include "wifi_config.h"
 

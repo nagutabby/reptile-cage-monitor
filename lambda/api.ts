@@ -3,6 +3,7 @@ import { Hono, type MiddlewareHandler } from "hono";
 import { handle } from "@hono/aws-lambda";
 import { ddb, requireTableName } from "./database";
 import { setLight } from "./light-control";
+import { setAirConditionerPreset } from "./air-conditioner-control";
 
 export interface ReadingRecord {
   id: number | string;
@@ -16,6 +17,7 @@ export interface ApiDependencies {
   listReadings(minutes: number): Promise<ReadingRecord[]>;
   getDeviceState(): Promise<DeviceState>;
   setLight(isLightOn: boolean): Promise<SetLightResult>;
+  setAirConditionerPreset(command: AirConditionerCommand): Promise<SetAirConditionerCommandResult>;
   getPublicConfig(): PublicConfig;
 }
 
@@ -39,6 +41,26 @@ export interface SetLightResult {
   status: "updated" | "unchanged" | "superseded";
 }
 
+export type AirConditionerMode = "cool" | "heat";
+export type AirConditionerFan = "auto" | "quiet" | "1" | "2" | "3" | "4" | "5";
+export type AirConditionerVerticalSwing = "off" | "swing" | "highest" | "high" | "upper_middle" | "lower_middle" | "low" | "lowest" | "breeze" | "circulate";
+
+export interface AirConditionerPreset {
+  mode: AirConditionerMode;
+  temp_c: number;
+  fan: AirConditionerFan;
+  swing_v: AirConditionerVerticalSwing;
+}
+
+export type AirConditionerCommand =
+  | { operation: "learn"; preset: AirConditionerPreset }
+  | { operation: "send"; preset: AirConditionerPreset; raw_data: number[] };
+
+export interface SetAirConditionerCommandResult {
+  status: "queued";
+  command_id: string;
+}
+
 type ReadingsQueryInput = {
   in: { query: { minutes?: string | string[] } };
   out: { query: { minutes: number } };
@@ -48,6 +70,38 @@ type LightBodyInput = {
   in: { json: { is_light_on: boolean } };
   out: { json: { is_light_on: boolean } };
 };
+
+type AirConditionerBodyInput = {
+  in: { json: AirConditionerCommand };
+  out: { json: AirConditionerCommand };
+};
+
+const AIR_CONDITIONER_MODES = new Set<AirConditionerMode>(["cool", "heat"]);
+const AIR_CONDITIONER_FANS = new Set<AirConditionerFan>(["auto", "quiet", "1", "2", "3", "4", "5"]);
+const AIR_CONDITIONER_SWING_V = new Set<AirConditionerVerticalSwing>([
+  "off", "swing", "highest", "high", "upper_middle", "lower_middle", "low", "lowest", "breeze", "circulate",
+]);
+
+function isAirConditionerPreset(value: unknown): value is AirConditionerPreset {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const preset = value as Record<string, unknown>;
+  if (typeof preset.mode !== "string" || !AIR_CONDITIONER_MODES.has(preset.mode as AirConditionerMode)) return false;
+  if (typeof preset.temp_c !== "number" || !Number.isFinite(preset.temp_c)
+    || preset.temp_c < 10 || preset.temp_c > 32 || !Number.isInteger(preset.temp_c * 2)) return false;
+  if (preset.mode === "cool" && preset.temp_c < 18) return false;
+  return typeof preset.fan === "string" && AIR_CONDITIONER_FANS.has(preset.fan as AirConditionerFan)
+    && typeof preset.swing_v === "string" && AIR_CONDITIONER_SWING_V.has(preset.swing_v as AirConditionerVerticalSwing);
+}
+
+function isAirConditionerCommand(value: unknown): value is AirConditionerCommand {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const command = value as Record<string, unknown>;
+  if (!isAirConditionerPreset(command.preset)) return false;
+  if (command.operation === "learn") return command.raw_data === undefined;
+  if (command.operation !== "send" || !Array.isArray(command.raw_data)) return false;
+  return command.raw_data.length >= 2 && command.raw_data.length <= 700
+    && command.raw_data.every((duration) => Number.isInteger(duration) && duration > 0 && duration <= 65_535);
+}
 
 const validateReadingsQuery: MiddlewareHandler<{}, "/api/readings", ReadingsQueryInput> = async (context, next) => {
   const rawMinutes = context.req.query("minutes");
@@ -73,6 +127,18 @@ const validateLightBody: MiddlewareHandler<{}, "/control/light", LightBodyInput>
   await next();
 };
 
+const validateAirConditionerBody: MiddlewareHandler<{}, "/control/air-conditioner", AirConditionerBodyInput> = async (context, next) => {
+  let body: unknown;
+  try {
+    body = await context.req.json();
+  } catch {
+    return context.json({ error: "invalid JSON body" }, 400);
+  }
+  if (!isAirConditionerCommand(body)) return context.json({ error: "invalid IR preset command" }, 400);
+  context.req.addValidatedData("json", body);
+  await next();
+};
+
 export function createApi(dependencies: ApiDependencies) {
   return new Hono()
     .get("/healthz", (context) => context.json({ status: "ok" }))
@@ -87,6 +153,9 @@ export function createApi(dependencies: ApiDependencies) {
     .post("/control/light", validateLightBody, async (context) => {
       const { is_light_on: isLightOn } = context.req.valid("json");
       return context.json(await dependencies.setLight(isLightOn));
+    })
+    .post("/control/air-conditioner", validateAirConditionerBody, async (context) => {
+      return context.json(await dependencies.setAirConditionerPreset(context.req.valid("json")));
     });
 }
 
@@ -146,6 +215,7 @@ export const app = createApi({
   listReadings,
   getDeviceState,
   setLight,
+  setAirConditionerPreset,
   getPublicConfig: (): PublicConfig => ({
     region: process.env.AWS_REGION ?? "ap-northeast-1",
     endpoint: required("IOT_ENDPOINT"),
