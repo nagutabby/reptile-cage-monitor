@@ -10,6 +10,7 @@
 
   interface Props {
     data: Point[];
+    window: { start: number; end: number };
     valueKey: "temp_c" | "humidity";
     min: number;
     max: number;
@@ -19,7 +20,7 @@
 
   Chart.register(LineController, LineElement, PointElement, LinearScale, Tooltip, Filler);
 
-  let { data, valueKey, min, max, color, title }: Props = $props();
+  let { data, window, valueKey, min, max, color, title }: Props = $props();
   let canvas: HTMLCanvasElement;
   let chart: Chart<"line", { x: number; y: number }[]> | undefined;
 
@@ -61,6 +62,8 @@
     if (!chart) return;
     const values = points.map((p) => p.y);
     chart.data.datasets[0].data = points;
+    chart.options.scales!.x!.min = window.start;
+    chart.options.scales!.x!.max = window.end;
     chart.options.scales!.y!.min = Math.min(min, ...values);
     chart.options.scales!.y!.max = Math.max(max, ...values);
     chart.update();

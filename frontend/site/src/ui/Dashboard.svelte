@@ -37,6 +37,7 @@
   });
   let rangeMinutes = $state(360);
   let sliderMinutes = $state(360);
+  let historyWindow = $state({ start: 0, end: 0 });
   let historyRequestId = 0;
   let rangeTimer: ReturnType<typeof setTimeout> | undefined;
   let latestTelemetry = $state<{ temp_c: number; humidity: number; battery?: number; observed_at: string } | null>(null);
@@ -165,14 +166,17 @@
 
   async function loadHistory() {
     const requestId = ++historyRequestId;
+    const requestedMinutes = rangeMinutes;
+    const requestedAt = Date.now();
     loadingHistory = true;
     try {
       const rows = await getJson(apiClient.api.readings.$get(
-        { query: { minutes: String(rangeMinutes) } },
+        { query: { minutes: String(requestedMinutes) } },
         { init: { cache: "no-store" } },
       ));
       if (requestId !== historyRequestId) return;
       readings = rows;
+      historyWindow = { start: requestedAt - requestedMinutes * 60_000, end: requestedAt };
       if (!telemetryIsLive && readings.length) {
         const latest = readings.at(-1)!;
         latestTelemetry = {
@@ -342,13 +346,13 @@
     <div class="card card-border mt-3 border-base-300 bg-base-200">
       <div class="card-body p-4">
         <div class="flex items-center justify-between"><h3 class="font-semibold">温度</h3><span class="badge badge-warning badge-outline">温度</span></div>
-        <HistoryChart data={readings} valueKey="temp_c" min={tempMin} max={tempMax} color="#ffb86c" title="温度" />
+        <HistoryChart data={readings} window={historyWindow} valueKey="temp_c" min={tempMin} max={tempMax} color="#ffb86c" title="温度" />
       </div>
     </div>
     <div class="card card-border mt-3 border-base-300 bg-base-200">
       <div class="card-body p-4">
         <div class="flex items-center justify-between"><h3 class="font-semibold">湿度</h3><span class="badge badge-info badge-outline">湿度</span></div>
-        <HistoryChart data={readings} valueKey="humidity" min={humidityMin} max={humidityMax} color="#8be9fd" title="湿度" />
+        <HistoryChart data={readings} window={historyWindow} valueKey="humidity" min={humidityMin} max={humidityMax} color="#8be9fd" title="湿度" />
       </div>
     </div>
     {#if loadingHistory}<footer class="mt-3 text-right text-sm text-base-content/70">履歴を更新しています…</footer>{/if}
