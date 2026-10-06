@@ -1,5 +1,14 @@
 import { describe, expect, it, vi } from "vitest";
-import { createApi, type AirConditionerCommand } from "../lambda/api";
+import { createApi, type AirConditionerCommand, type AirConditionerPresetUpdate } from "../lambda/api";
+
+const presetSettings = { mode: "cool" as const, temp_c: 27, fan: "auto" as const, swing_v: "off" as const };
+const presets = [1, 2, 3, 4].map((preset_id) => ({
+  preset_id,
+  ...presetSettings,
+  name: `Preset ${preset_id}`,
+  revision: 0,
+  learned: false,
+}));
 
 function testApi() {
   const dependencies = {
@@ -15,6 +24,14 @@ function testApi() {
       status: "queued" as const,
       command_id: "command-123",
     })),
+    listAirConditionerPresets: vi.fn(async () => presets),
+    updateAirConditionerPreset: vi.fn(async (presetId: number, update: AirConditionerPresetUpdate) => ({
+      preset_id: presetId,
+      ...update,
+      revision: 1,
+      learned: false,
+    })),
+    syncAirConditionerPreset: vi.fn(async () => undefined),
     getPublicConfig: vi.fn(() => ({
       region: "ap-northeast-1",
       endpoint: "example.iot.ap-northeast-1.amazonaws.com",
@@ -58,6 +75,43 @@ describe("Hono API", () => {
     });
     expect(result.status).toBe(200);
     expect(dependencies.setLight).toHaveBeenCalledWith(true);
+  });
+
+  it("lists four air-conditioner slots and validates updates before syncing the device", async () => {
+    const { app, dependencies } = testApi();
+    const listed = await app.request("/api/air-conditioner-presets");
+    expect(listed.status).toBe(200);
+    expect(await listed.json()).toHaveLength(4);
+
+    const invalidId = await app.request("/api/air-conditioner-presets/5", {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ ...presetSettings, name: "Invalid" }),
+    });
+    expect(invalidId.status).toBe(400);
+
+    const invalidSettings = await app.request("/api/air-conditioner-presets/2", {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ ...presetSettings, temp_c: 17, name: "Invalid" }),
+    });
+    expect(invalidSettings.status).toBe(400);
+    const invalidName = await app.request("/api/air-conditioner-presets/2", {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ ...presetSettings, name: 123 }),
+    });
+    expect(invalidName.status).toBe(400);
+    expect(dependencies.updateAirConditionerPreset).not.toHaveBeenCalled();
+
+    const updated = await app.request("/api/air-conditioner-presets/2", {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ ...presetSettings, name: "Night" }),
+    });
+    expect(updated.status).toBe(200);
+    expect(dependencies.updateAirConditionerPreset).toHaveBeenCalledWith(2, { ...presetSettings, name: "Night" });
+    expect(dependencies.syncAirConditionerPreset).toHaveBeenCalledWith(expect.objectContaining({ preset_id: 2, name: "Night" }));
   });
 
 });

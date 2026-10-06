@@ -22,7 +22,8 @@ void MqttLink::begin() {
     secureClient_.setPrivateKey(IOT_PRIVATE_KEY);
     client_.setServer(IOT_ENDPOINT, 8883);
     // Shadow get/accepted includes desired, reported, and metadata.
-    client_.setBufferSize(1536);
+    // Shadow requests/events can carry up to 700 uint32 IR timings as JSON.
+    client_.setBufferSize(8192);
     client_.setKeepAlive(60);
     WiFi.mode(WIFI_STA);
     WiFi.setAutoReconnect(true);

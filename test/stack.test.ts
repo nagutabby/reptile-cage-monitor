@@ -42,7 +42,20 @@ describe("ReptileCageMonitor stack", () => {
     const routes = Object.values(resources).filter((resource) => resource.Type === "AWS::ApiGatewayV2::Route");
     const lightRoute = routes.find((resource) => resource.Properties?.RouteKey === "POST /control/light");
     const historyRoute = routes.find((resource) => resource.Properties?.RouteKey === "GET /api/{proxy+}");
+    const presetsGetRoute = routes.find((resource) => resource.Properties?.RouteKey === "GET /api/air-conditioner-presets");
+    const presetsPatchRoute = routes.find((resource) => resource.Properties?.RouteKey === "PATCH /api/air-conditioner-presets/{presetId}");
     expect(lightRoute?.Properties).toMatchObject({ AuthorizationType: "JWT" });
     expect(historyRoute?.Properties).toMatchObject({ AuthorizationType: "NONE" });
+    expect(presetsGetRoute?.Properties).toMatchObject({ AuthorizationType: "JWT" });
+    expect(presetsPatchRoute?.Properties).toMatchObject({ AuthorizationType: "JWT" });
+
+    const presetRule = Object.values(resources).find((resource) => resource.Type === "AWS::IoT::TopicRule"
+      && JSON.stringify(resource.Properties).includes("air-conditioner/state"));
+    expect(presetRule?.Properties).toMatchObject({
+      TopicRulePayload: {
+        Sql: "SELECT * FROM 'reptile-cage-monitor/air-conditioner/state' WHERE status = 'captured'",
+      },
+    });
+    expect(JSON.stringify(template)).toContain("reptile_cage_monitor_air_presets_to_backend");
   });
 });

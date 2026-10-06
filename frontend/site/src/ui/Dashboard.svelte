@@ -272,6 +272,13 @@
     </div>
     <article class="metric-card air-conditioner-card">
       <span>エアコンIRプリセット</span>
+      <div class="ac-preset-slots" role="group" aria-label="プリセット枠">
+        {#each [1, 2, 3, 4] as presetId}
+          <button type="button" class="ac-preset-slot" data-air-preset-id={presetId} aria-pressed={presetId === 1} disabled={idToken === null}>
+            枠 {presetId} · ログインして読み込み
+          </button>
+        {/each}
+      </div>
       <form id="air-conditioner-form" class="air-conditioner-form">
         <div class="air-conditioner-fields">
           <label class="ac-field">冷房 or 暖房
@@ -294,12 +301,12 @@
         </div>
         <small id="ac-preset-availability" class="preset-availability" aria-live="polite">この組み合わせは未学習です</small>
         <div class="ac-actions">
-          <button type="button" id="air-conditioner-learn" class="ac-button" disabled={idToken === null}>リモコン信号を学習</button>
-          <button type="button" id="air-conditioner-send" class="ac-button ac-send-button" disabled={idToken === null}>このプリセットを送信</button>
+          <button type="button" id="air-conditioner-save" class="ac-button" disabled={idToken === null}>設定を保存</button>
+          <button type="button" id="air-conditioner-send" class="ac-button ac-send-button" disabled={idToken === null}>保存済み信号を送信</button>
         </div>
       </form>
       <small id="air-conditioner-control-status" class="control-status" role="status" aria-live="polite"></small>
-      <small class="air-conditioner-note">選んだ4項目の組み合わせごとに名前と学習済み生データをこのブラウザーに保存します。学習時はリモコンをUnit IRに向けて操作してください。</small>
+      <small class="air-conditioner-note">設定と学習データはID 1〜4の枠ごとに保存します。信号を学習するにはUnit IR本体で枠を選び、ボタンを1秒以上長押ししてから60秒以内にリモコンを操作してください。</small>
     </article>
     {#if message}<p class="message" role="status">{message}</p>{/if}
   </section>
@@ -354,6 +361,10 @@
   .humidity-card { background: linear-gradient(145deg, #203047, #2b211a 75%); }
   .air-conditioner-card { min-height: 0; margin-top: 14px; }
   .air-conditioner-form { margin-top: 14px; }
+  .ac-preset-slots { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin-top: 12px; }
+  .ac-preset-slot { min-height: 42px; padding: 8px 10px; border: 1px solid #67574a; border-radius: 7px; background: #211914; color: #c8b7a6; text-align: left; font: inherit; cursor: pointer; }
+  .ac-preset-slot[aria-pressed="true"] { border-color: #c08a20; background: #493923; color: #fff4de; }
+  .ac-preset-slot:disabled { opacity: .5; cursor: not-allowed; }
   .air-conditioner-fields { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
   .ac-field { display: flex; flex-direction: column; gap: 6px; color: #c8b7a6; font-size: .82rem; }
   .ac-field select, .ac-field input { width: 100%; min-height: 39px; padding: 7px 9px; border: 1px solid #67574a; border-radius: 7px; background: #211914; color: #f5eee7; font: inherit; }
@@ -394,6 +405,7 @@
     .live-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 9px; }
     .metric-card { min-height: 125px; padding: 13px; }
     .air-conditioner-fields { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .ac-preset-slots { grid-template-columns: 1fr; }
     .ac-name-field { grid-column: span 2; }
     .live-heading, .history-heading { align-items: flex-start; flex-direction: column; }
     .sync { text-align: left; }

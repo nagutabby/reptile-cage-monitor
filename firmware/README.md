@@ -6,7 +6,7 @@
 | --- | --- | --- |
 | `sensor-pub` | SwitchBot 温湿度計を BLE で読み、1 分ごとに測定値を送信 | `reptile-cage-monitor/cage/telemetry` への publish のみ |
 | `controller-sub` | AtomS3 のボタンでライトを現在状態から切り替え、Shadow の `desired` を受けてプラグを操作し、実状態を報告 | Shadow の get/delta を購読、`reptile-cage-monitor/cage/state` と Shadow の `desired` / `reported` を publish |
-| `ir-controller` | Webから受け取ったIR生データをUnit IRで送信し、リモコンの信号を学習 | 専用Shadowの get/delta を購読、`reptile-cage-monitor/air-conditioner/state` に学習・送信結果をpublish |
+| `ir-controller` | 4つのIRプリセットをNVSに保存し、Unit IRで学習・送信 | 専用Shadowの get/delta を購読、`reptile-cage-monitor/air-conditioner/state` に学習・送信結果をpublish |
 | `inspection` | SwitchBot プラグの接続確認 | MQTT なし |
 
 ライトの時刻制御とヒーターの温度判定は AWS Lambda が行い、Device Shadow の `desired` に書き込みます。AtomS3 の画面は常時点灯し、ライトとヒーターの BLE 確認状態を表示します。ボタンを押すとライトの現在状態を BLE で読み、反対の状態へ切り替えた後、その値を Shadow の `desired.is_light_on` に送信します。コントローラーは起動・再接続時に Shadow を取得し、以後の差分を受けてプラグを操作します。ボタン操作で Shadow への送信に失敗した場合は、接続後に再送します。
@@ -27,9 +27,11 @@ cp include/iot_config.h.example include/iot_config_ir_controller.h
 
 ## エアコンIRプリセット
 
-Unit IRをAtomS3のGrove端子に接続します。AtomS3側のG1が受信、G2が送信ピンです。Web画面で冷房／暖房、設定温度（0.5℃刻み）、上下風向、風量を組み合わせたプリセット名を編集できます。「リモコン信号を学習」で該当する設定を純正リモコンから受信し、ブラウザーに生データを保存します。「このプリセットを送信」で同じ生データをAtomS3へ送り、IR送信します。プリセット名と学習データはブラウザーのlocalStorageに保存されます。
+Unit IRをAtomS3のGrove端子に接続します。AtomS3側のG1が受信、G2が送信ピンです。AtomS3のボタンを短押しするとプリセットIDを1→2→3→4→1と切り替えます。画面に選択中のIDと学習状態が表示されます。1秒以上長押しするとそのIDの学習を始め、60秒以内に信号を受信するとIRデータと設定をNVSへ保存して終了します。信号を受けない場合も60秒で終了します。再起動後も選択IDと各枠のデータを保持します。
 
-IR受信データは最大700個のマイクロ秒間隔値として扱い、AWS IoT Shadowへは1コマンドずつ送ります。信号の受信結果はUnit IRのIRレシーバーで記録したこと、送信結果はIR LEDから信号を出したことを示します。エアコン本体の受信や動作までは確認しません。
+Web画面ではID 1〜4の状態を見て、名前、冷房／暖房、設定温度（0.5℃刻み）、上下風向、風量を編集できます。保存するとDynamoDBの同じIDの行を更新し、改訂番号付きShadow通知で端末へ設定を同期します。保存済み信号を送信する操作もWebから行えます。学習結果はIoT Core経由でDynamoDBの対応するIDの行へupsertされるため、同じIDの再学習で履歴行は増えません。
+
+IR受信は120 msの無信号で終了し、最大700個の間隔値を保存します。markは最大65,535 µs、spaceは最大131,070 µsを扱い、従来の16ビット保存データは起動時に32ビット形式へ移行します。送信搬送波は38 kHz、デューティ比50%で、同じRaw信号を100 ms間隔で2回送ります。送信結果はIR LEDから信号を出したことを示し、エアコン本体の受信や動作までは確認しません。距離や向きを調整しても反応しない場合は、IR LEDの出力不足を疑い、Unit IRを近づけるか外部駆動のIR送信器を使ってください。
 
 ## ビルド・書き込み
 
