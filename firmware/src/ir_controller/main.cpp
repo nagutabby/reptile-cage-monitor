@@ -252,10 +252,11 @@ void loop() {
     if (mqtt.consumeJustConnected()) onConnection();
 
     const bool mqttConnected = mqtt.connected();
-    static String previousScreenMessage;
-    if (mqttConnected != previousMqttConnected || previousScreenMessage != currentMessage) {
+    static String previousScreenText;
+    const String screenText = currentMessage + "\n" + lastSettingsText;
+    if (mqttConnected != previousMqttConnected || previousScreenText != screenText) {
         previousMqttConnected = mqttConnected;
-        previousScreenMessage = currentMessage;
+        previousScreenText = screenText;
         drawScreen();
     }
     delay(5);
