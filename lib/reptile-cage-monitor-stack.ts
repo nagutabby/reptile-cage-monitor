@@ -211,6 +211,11 @@ export class ReptileCageMonitorStack extends cdk.Stack {
       removalPolicy: cdk.RemovalPolicy.RETAIN,
     });
 
+    const makeLogGroup = (functionId: string) => new logs.LogGroup(this, `${functionId}Logs`, {
+      retention: logs.RetentionDays.ONE_MONTH,
+      removalPolicy: cdk.RemovalPolicy.DESTROY,
+    });
+
     const sessionFunction = new lambdaNodejs.NodejsFunction(this, "ViewerSession", {
       entry: path.join(__dirname, "..", "lambda", "session.ts"),
       handler: "handler",
@@ -223,7 +228,7 @@ export class ReptileCageMonitorStack extends cdk.Stack {
         IOT_ENDPOINT: props.iotEndpoint,
       },
       bundling: { minify: true, sourceMap: true, target: "node24" },
-      logRetention: logs.RetentionDays.ONE_MONTH,
+      logGroup: makeLogGroup("ViewerSession"),
     });
     sessionFunction.addToRolePolicy(new iam.PolicyStatement({ actions: ["iot:AttachPolicy"], resources: ["*"] }));
     sessionFunction.addToRolePolicy(new iam.PolicyStatement({
@@ -259,7 +264,7 @@ export class ReptileCageMonitorStack extends cdk.Stack {
         LINE_TO_ID_PARAMETER: lineToParameterName,
       },
       bundling: { minify: true, sourceMap: true, target: "node24" },
-      logRetention: logs.RetentionDays.ONE_MONTH,
+      logGroup: makeLogGroup("Ingest"),
     });
     table.grantReadWriteData(ingestFunction);
     ingestFunction.addToRolePolicy(new iam.PolicyStatement({
@@ -286,7 +291,7 @@ export class ReptileCageMonitorStack extends cdk.Stack {
         COGNITO_DOMAIN: `${props.cognitoDomainPrefix}.auth.${this.region}.amazoncognito.com`,
       },
       bundling: { minify: true, sourceMap: true, target: "node24" },
-      logRetention: logs.RetentionDays.ONE_MONTH,
+      logGroup: makeLogGroup("ApiFunction"),
     });
     table.grantReadData(apiFunction);
     apiFunction.addToRolePolicy(new iam.PolicyStatement({
@@ -313,7 +318,7 @@ export class ReptileCageMonitorStack extends cdk.Stack {
         timeout: cdk.Duration.seconds(timeoutSeconds),
         environment: { IOT_ENDPOINT: props.iotEndpoint },
         bundling: { minify: true, sourceMap: true, target: "node24" },
-        logRetention: logs.RetentionDays.ONE_MONTH,
+        logGroup: makeLogGroup(constructId),
       });
       fn.addToRolePolicy(new iam.PolicyStatement({
         actions: ["iot:GetThingShadow", "iot:UpdateThingShadow"],
