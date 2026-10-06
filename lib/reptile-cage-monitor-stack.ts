@@ -15,6 +15,7 @@ import * as iam from "aws-cdk-lib/aws-iam";
 import * as iot from "aws-cdk-lib/aws-iot";
 import * as lambda from "aws-cdk-lib/aws-lambda";
 import * as lambdaNodejs from "aws-cdk-lib/aws-lambda-nodejs";
+import * as logs from "aws-cdk-lib/aws-logs";
 import * as s3 from "aws-cdk-lib/aws-s3";
 import * as s3deploy from "aws-cdk-lib/aws-s3-deployment";
 import * as route53 from "aws-cdk-lib/aws-route53";
@@ -222,6 +223,7 @@ export class ReptileCageMonitorStack extends cdk.Stack {
         IOT_ENDPOINT: props.iotEndpoint,
       },
       bundling: { minify: true, sourceMap: true, target: "node24" },
+      logRetention: logs.RetentionDays.ONE_MONTH,
     });
     sessionFunction.addToRolePolicy(new iam.PolicyStatement({ actions: ["iot:AttachPolicy"], resources: ["*"] }));
     sessionFunction.addToRolePolicy(new iam.PolicyStatement({
@@ -257,6 +259,7 @@ export class ReptileCageMonitorStack extends cdk.Stack {
         LINE_TO_ID_PARAMETER: lineToParameterName,
       },
       bundling: { minify: true, sourceMap: true, target: "node24" },
+      logRetention: logs.RetentionDays.ONE_MONTH,
     });
     table.grantReadWriteData(ingestFunction);
     ingestFunction.addToRolePolicy(new iam.PolicyStatement({
@@ -283,6 +286,7 @@ export class ReptileCageMonitorStack extends cdk.Stack {
         COGNITO_DOMAIN: `${props.cognitoDomainPrefix}.auth.${this.region}.amazoncognito.com`,
       },
       bundling: { minify: true, sourceMap: true, target: "node24" },
+      logRetention: logs.RetentionDays.ONE_MONTH,
     });
     table.grantReadData(apiFunction);
     apiFunction.addToRolePolicy(new iam.PolicyStatement({
@@ -309,6 +313,7 @@ export class ReptileCageMonitorStack extends cdk.Stack {
         timeout: cdk.Duration.seconds(timeoutSeconds),
         environment: { IOT_ENDPOINT: props.iotEndpoint },
         bundling: { minify: true, sourceMap: true, target: "node24" },
+        logRetention: logs.RetentionDays.ONE_MONTH,
       });
       fn.addToRolePolicy(new iam.PolicyStatement({
         actions: ["iot:GetThingShadow", "iot:UpdateThingShadow"],
