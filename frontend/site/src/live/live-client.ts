@@ -135,7 +135,7 @@ export async function start(config: LiveClientConfig): Promise<void> {
     clearTimeout(airCommandTimeout);
     activeAirCommandId = null;
     setText("air-conditioner-control-status", event.status === "sent"
-      ? "IR信号を送信しました（エアコン本体の受信状態は未確認）"
+      ? "IR信号を送信しました"
       : "IR送信に失敗しました");
     updateAirConditionerForm();
   }

@@ -237,26 +237,26 @@
   <script is:inline src="/live-client.bundle.js"></script>
 </svelte:head>
 
-<main class="shell">
-  <header class="topbar">
+<main class="mx-auto max-w-6xl px-4 py-6 sm:px-7 sm:py-9">
+  <header class="navbar mb-8 flex-col items-start gap-3 p-0 sm:flex-row sm:items-center sm:justify-between">
     <div>
-      <p class="eyebrow">REPTILE HABITAT</p>
-      <h1>レオパ温湿度モニター</h1>
+      <p class="text-xs font-bold tracking-widest text-secondary">REPTILE HABITAT</p>
+      <h1 class="text-2xl font-bold sm:text-3xl">レオパ温湿度モニター</h1>
     </div>
-    <div class="auth-area">
+    <div class="flex w-full items-center justify-between gap-3 sm:w-auto">
       {#if idToken}
-        <span class="login-state">{email ?? "ログイン中"}</span>
-        <button class="quiet-button" onclick={logout}>ログアウト</button>
+        <span class="text-sm text-base-content/70">{email ?? "ログイン中"}</span>
+        <button class="btn btn-outline btn-sm" onclick={logout}>ログアウト</button>
       {:else}
-        <button class="quiet-button" onclick={login} disabled={!config}>ログイン</button>
+        <button class="btn btn-primary btn-sm" onclick={login} disabled={!config}>ログイン</button>
       {/if}
     </div>
   </header>
 
-  <section class="live-section" aria-label="ライブ状態">
-    <div class="live-heading">
-      <div><p class="eyebrow">LIVE NOW</p><h2>ケージの状態</h2></div>
-      <p class="sync" id="updated">
+  <section aria-label="ライブ状態">
+    <div class="mb-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+      <div><p class="text-xs font-bold tracking-widest text-secondary">LIVE NOW</p><h2 class="text-xl font-semibold">ケージの状態</h2></div>
+      <p class="text-sm text-base-content/70 sm:text-right" id="updated">
         {#if latestTelemetry}
           {telemetryIsLive ? "AWS IoT Coreから受信:" : "保存済みの最終測定:"} {formatObservedAt(latestTelemetry.observed_at)}
         {:else}
@@ -264,132 +264,67 @@
         {/if}
       </p>
     </div>
-    <div class="live-grid">
-      <article class="metric-card temp-card"><span>最新温度</span><strong id="temperature">{latestTelemetry ? `${latestTelemetry.temp_c.toFixed(1)} ℃` : "-- ℃"}</strong></article>
-      <article class="metric-card humidity-card"><span>最新湿度</span><strong id="humidity">{latestTelemetry ? `${latestTelemetry.humidity.toFixed(0)} %` : "-- %"}</strong></article>
-      <article class="metric-card"><span>ライト</span><strong id="light">不明</strong></article>
-      <article class="metric-card"><span>パネルヒーター</span><strong id="heater">不明</strong></article>
+    <div class="grid grid-cols-2 gap-3 lg:grid-cols-4">
+      <article class="stat rounded-box border border-base-300 bg-base-200"><div class="stat-title">最新温度</div><div class="stat-value text-warning" id="temperature">{latestTelemetry ? `${latestTelemetry.temp_c.toFixed(1)} ℃` : "-- ℃"}</div></article>
+      <article class="stat rounded-box border border-base-300 bg-base-200"><div class="stat-title">最新湿度</div><div class="stat-value text-info" id="humidity">{latestTelemetry ? `${latestTelemetry.humidity.toFixed(0)} %` : "-- %"}</div></article>
+      <article class="stat rounded-box border border-base-300 bg-base-200"><div class="stat-title">ライト</div><div class="stat-value" id="light">不明</div></article>
+      <article class="stat rounded-box border border-base-300 bg-base-200"><div class="stat-title">パネルヒーター</div><div class="stat-value" id="heater">不明</div></article>
     </div>
-    <article class="metric-card air-conditioner-card">
-      <span>エアコン</span>
-      <form id="air-conditioner-form" class="air-conditioner-form">
-        <div class="air-conditioner-fields">
-          <label class="ac-field">電源
-            <select id="ac-power"><option value="on" selected>ON</option><option value="off">OFF</option></select>
-          </label>
-          <label class="ac-field">冷房 or 暖房
-            <select id="ac-mode"><option value="cool" selected>冷房</option><option value="heat">暖房</option></select>
-          </label>
-          <label class="ac-field">設定温度（0.5℃刻み）
-            <input id="ac-temp" type="number" min="18" max="32" step="0.5" value="27" required />
-          </label>
-          <label class="ac-field">上下の風向
-            <select id="ac-swing-v">
-              <option value="off">固定（現在位置）</option><option value="swing">スイング</option><option value="highest">一番上</option><option value="high">上</option><option value="upper_middle">上中</option><option value="lower_middle">下中</option><option value="low">下</option><option value="lowest">一番下</option><option value="breeze">そよ風</option><option value="circulate">循環</option>
-            </select>
-          </label>
-          <label class="ac-field">風量
-            <select id="ac-fan"><option value="auto" selected>自動</option><option value="quiet">静音</option><option value="1">1（弱）</option><option value="2">2</option><option value="3">3</option><option value="4">4</option><option value="5">5（強）</option></select>
-          </label>
-        </div>
-        <small id="ac-availability" class="ac-availability" aria-live="polite">{idToken === null ? "ログインするとエアコンを操作できます" : ""}</small>
-        <div class="ac-actions">
-          <button type="button" id="air-conditioner-send" class="ac-button ac-send-button" disabled={idToken === null}>この設定で送信</button>
-        </div>
-      </form>
-      <small id="air-conditioner-control-status" class="control-status" role="status" aria-live="polite"></small>
-      <small class="air-conditioner-note">電源・冷房/暖房・温度・風向・風量だけを指定します。それ以外の項目は初期値で送信します。</small>
+    <article class="card card-border mt-3 border-base-300 bg-base-200">
+      <div class="card-body">
+        <h3 class="card-title text-base">エアコン</h3>
+        <form id="air-conditioner-form">
+          <div class="grid grid-cols-2 gap-3 lg:grid-cols-5">
+            <label class="form-control flex flex-col gap-1 text-sm">電源
+              <select id="ac-power" class="select w-full"><option value="on" selected>ON</option><option value="off">OFF</option></select>
+            </label>
+            <label class="form-control flex flex-col gap-1 text-sm">冷房 or 暖房
+              <select id="ac-mode" class="select w-full"><option value="cool" selected>冷房</option><option value="heat">暖房</option></select>
+            </label>
+            <label class="form-control flex flex-col gap-1 text-sm">設定温度（0.5℃刻み）
+              <input id="ac-temp" class="input w-full" type="number" min="18" max="32" step="0.5" value="27" required />
+            </label>
+            <label class="form-control flex flex-col gap-1 text-sm">上下の風向
+              <select id="ac-swing-v" class="select w-full">
+                <option value="off">固定（現在位置）</option><option value="swing">スイング</option><option value="highest">一番上</option><option value="high">上</option><option value="upper_middle">上中</option><option value="lower_middle">下中</option><option value="low">下</option><option value="lowest">一番下</option><option value="breeze">そよ風</option><option value="circulate">循環</option>
+              </select>
+            </label>
+            <label class="form-control flex flex-col gap-1 text-sm">風量
+              <select id="ac-fan" class="select w-full"><option value="auto" selected>自動</option><option value="quiet">静音</option><option value="1">1（弱）</option><option value="2">2</option><option value="3">3</option><option value="4">4</option><option value="5">5（強）</option></select>
+            </label>
+          </div>
+          <small id="ac-availability" class="mt-3 block text-base-content/70" aria-live="polite">{idToken === null ? "ログインするとエアコンを操作できます" : ""}</small>
+          <div class="mt-3">
+            <button type="button" id="air-conditioner-send" class="btn btn-primary" disabled={idToken === null}>データを送信</button>
+          </div>
+        </form>
+        <small id="air-conditioner-control-status" class="control-status min-h-4 text-warning" role="status" aria-live="polite"></small>
+      </div>
     </article>
-    {#if message}<p class="message" role="status">{message}</p>{/if}
+    {#if message}<p class="mt-4 text-sm text-warning" role="status">{message}</p>{/if}
   </section>
 
-  <section class="history-section" aria-label="温湿度の履歴">
-    <div class="history-heading">
-      <div><p class="eyebrow">HISTORY</p><h2>温湿度の推移</h2></div>
-      <div class="range-picker" role="group" aria-label="グラフの表示範囲">
+  <section class="mt-10" aria-label="温湿度の履歴">
+    <div class="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+      <div><p class="text-xs font-bold tracking-widest text-secondary">HISTORY</p><h2 class="text-xl font-semibold">温湿度の推移</h2></div>
+      <div class="join w-full sm:w-auto" role="group" aria-label="グラフの表示範囲">
         {#each ranges as range}
-          <button class:active={rangeMinutes === range.minutes} aria-pressed={rangeMinutes === range.minutes} onclick={() => { rangeMinutes = range.minutes; void loadHistory(); }}>{range.label}</button>
+          <button class="btn btn-sm join-item flex-1 sm:flex-none" class:btn-primary={rangeMinutes === range.minutes} aria-pressed={rangeMinutes === range.minutes} onclick={() => { rangeMinutes = range.minutes; void loadHistory(); }}>{range.label}</button>
         {/each}
       </div>
     </div>
-    <div class="chart-card">
-      <div class="chart-title"><h3>温度</h3><span class="legend"><i class="temp-dot"></i>温度（℃）</span></div>
-      <HistoryChart data={readings} valueKey="temp_c" min={tempMin} max={tempMax} color="#d8a33b" title="温度" />
+    <div class="card card-border mt-3 border-base-300 bg-base-200">
+      <div class="card-body p-4">
+        <div class="flex items-center justify-between"><h3 class="font-semibold">温度</h3><span class="badge badge-warning badge-outline">温度（℃）</span></div>
+        <HistoryChart data={readings} valueKey="temp_c" min={tempMin} max={tempMax} color="#ffb86c" title="温度" />
+      </div>
     </div>
-    <div class="chart-card">
-      <div class="chart-title"><h3>湿度</h3><span class="legend"><i class="humidity-dot"></i>湿度（%）</span></div>
-      <HistoryChart data={readings} valueKey="humidity" min={humidityMin} max={humidityMax} color="#72a9df" title="湿度" />
+    <div class="card card-border mt-3 border-base-300 bg-base-200">
+      <div class="card-body p-4">
+        <div class="flex items-center justify-between"><h3 class="font-semibold">湿度</h3><span class="badge badge-info badge-outline">湿度（%）</span></div>
+        <HistoryChart data={readings} valueKey="humidity" min={humidityMin} max={humidityMax} color="#8be9fd" title="湿度" />
+      </div>
     </div>
-    {#if loadingHistory}<footer class="footnote">履歴を更新しています…</footer>{/if}
+    {#if loadingHistory}<footer class="mt-3 text-right text-sm text-base-content/70">履歴を更新しています…</footer>{/if}
   </section>
 </main>
-
-<style>
-  :global(*) { box-sizing: border-box; }
-  :global(html) { min-width: 320px; background: #1a130f; }
-  :global(body) { margin: 0; color: #f5eee7; font-family: ui-sans-serif, system-ui, -apple-system, "Hiragino Kaku Gothic ProN", Meiryo, sans-serif; }
-  .shell { max-width: 1120px; margin: 0 auto; padding: 34px 28px 56px; }
-  .topbar, .live-heading, .history-heading { display: flex; align-items: center; justify-content: space-between; gap: 20px; }
-  .topbar { margin-bottom: 38px; }
-  h1, h2, h3, p { margin: 0; }
-  h1 { font-size: clamp(1.5rem, 3vw, 2.15rem); letter-spacing: .02em; }
-  h2 { font-size: 1.22rem; font-weight: 600; }
-  h3 { font-size: 1rem; }
-  .eyebrow { margin-bottom: 7px; color: #a88f78; font-size: .67rem; font-weight: 700; letter-spacing: .18em; }
-  .auth-area { display: flex; align-items: center; gap: 12px; }
-  .login-state, .sync, .footnote { color: #c8b7a6; font-size: .8rem; }
-  button { color: inherit; font: inherit; }
-  .quiet-button { padding: 8px 13px; border: 1px solid #67574a; border-radius: 8px; background: transparent; cursor: pointer; }
-  .quiet-button:hover { background: #31241b; }
-  .quiet-button:disabled { opacity: .55; cursor: wait; }
-  .live-heading { margin-bottom: 16px; }
-  .sync { text-align: right; }
-  .live-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; }
-  .metric-card { display: flex; flex-direction: column; min-height: 150px; padding: 19px; border: 1px solid #4a392d; border-radius: 12px; background: #2b211a; }
-  .metric-card > span { color: #c8b7a6; font-size: .85rem; }
-  .metric-card strong { margin-top: 14px; font-size: clamp(1.4rem, 3vw, 2rem); font-weight: 600; }
-  .metric-card small { margin-top: auto; padding-top: 9px; color: #a88f78; font-size: .75rem; }
-  .temp-card { background: linear-gradient(145deg, #392d1b, #2b211a 75%); }
-  .humidity-card { background: linear-gradient(145deg, #203047, #2b211a 75%); }
-  .air-conditioner-card { min-height: 0; margin-top: 14px; }
-  .air-conditioner-form { margin-top: 14px; }
-  .air-conditioner-fields { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 12px; }
-  .ac-field { display: flex; flex-direction: column; gap: 6px; color: #c8b7a6; font-size: .82rem; }
-  .ac-field select, .ac-field input { width: 100%; min-height: 39px; padding: 7px 9px; border: 1px solid #67574a; border-radius: 7px; background: #211914; color: #f5eee7; font: inherit; }
-  .ac-availability { display: block; margin-top: 10px !important; padding-top: 0 !important; }
-  .ac-actions { display: flex; flex-wrap: wrap; gap: 9px; margin-top: 12px; }
-  .ac-button { min-height: 42px; padding: 8px 15px; border: 1px solid #806744; border-radius: 8px; background: #493923; color: #fff4de; cursor: pointer; }
-  .ac-button:hover:not(:disabled) { background: #65502e; }
-  .ac-button:disabled { opacity: .45; cursor: not-allowed; }
-  .air-conditioner-note { padding-top: 8px !important; }
-  button:focus-visible { outline: 2px solid #f5eee7; outline-offset: 3px; }
-  .message { margin-top: 15px; color: #e7c688; font-size: .88rem; }
-  .history-section { margin-top: 43px; }
-  .history-heading { margin-bottom: 17px; }
-  .range-picker { display: flex; gap: 3px; padding: 4px; border: 1px solid #49392e; border-radius: 9px; background: #241b16; }
-  .range-picker button { padding: 7px 11px; border: 0; border-radius: 6px; background: transparent; color: #c8b7a6; font-size: .8rem; cursor: pointer; }
-  .range-picker button:hover { color: white; }
-  .range-picker button.active { background: #65502e; color: #fff4de; }
-  .chart-card { margin-top: 13px; padding: 17px 19px 12px; border: 1px solid #4a392d; border-radius: 12px; background: #2b211a; }
-  .chart-title { display: flex; align-items: center; justify-content: space-between; gap: 14px; margin: 0 0 3px 25px; }
-  .legend { display: flex; align-items: center; gap: 7px; color: #c8b7a6; font-size: .75rem; }
-  .legend i { width: 8px; height: 8px; border-radius: 50%; }
-  .temp-dot { background: #d8a33b; }
-  .humidity-dot { background: #72a9df; }
-  .footnote { margin-top: 14px; text-align: right; }
-  @media (max-width: 760px) {
-    .shell { padding: 23px 15px 40px; }
-    .topbar { align-items: flex-start; flex-direction: column; margin-bottom: 30px; }
-    .auth-area { width: 100%; justify-content: space-between; }
-    .live-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 9px; }
-    .metric-card { min-height: 125px; padding: 13px; }
-    .air-conditioner-fields { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-      .live-heading, .history-heading { align-items: flex-start; flex-direction: column; }
-    .sync { text-align: left; }
-    .range-picker { width: 100%; justify-content: space-between; }
-    .range-picker button { flex: 1; padding: 8px 4px; }
-    .chart-card { padding: 12px 9px 8px; }
-    .chart-title { align-items: flex-start; flex-direction: column; margin-left: 21px; }
-    .legend { font-size: .67rem; }
-  }
-</style>
