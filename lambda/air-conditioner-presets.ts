@@ -8,13 +8,6 @@ const VALID_SWINGS = new Set([
   "off", "swing", "highest", "high", "upper_middle", "lower_middle", "low", "lowest", "breeze", "circulate",
 ]);
 
-function isRawTimingArray(value: unknown): value is number[] {
-  return Array.isArray(value) && value.length >= 2 && value.length <= 700
-    && value.every((duration, index) => typeof duration === "number"
-      && Number.isInteger(duration) && duration > 0
-      && duration <= (index % 2 === 0 ? 65_535 : 131_070));
-}
-
 export interface CapturedPresetEvent {
   status: "captured";
   preset_id: number;
@@ -22,7 +15,6 @@ export interface CapturedPresetEvent {
   revision?: number;
   reported_at?: number | string;
   preset: { mode: string; temp_c: number; fan: string; swing_v: string };
-  raw_data: number[];
 }
 
 export function parseCapturedPresetEvent(value: unknown): CapturedPresetEvent | null {
@@ -38,7 +30,6 @@ export function parseCapturedPresetEvent(value: unknown): CapturedPresetEvent | 
     || (preset.mode === "cool" && preset.temp_c < 18)) return null;
   if (typeof preset.fan !== "string" || !VALID_FANS.has(preset.fan)
     || typeof preset.swing_v !== "string" || !VALID_SWINGS.has(preset.swing_v)) return null;
-  if (!isRawTimingArray(event.raw_data)) return null;
   if (event.name !== undefined && (typeof event.name !== "string" || event.name.length > 48)) return null;
   if (event.revision !== undefined && (!Number.isInteger(event.revision) || Number(event.revision) < 0)) return null;
   return event as unknown as CapturedPresetEvent;
@@ -65,13 +56,12 @@ export async function handler(event: IoTEvent | Record<string, unknown>): Promis
   await ddb.send(new UpdateCommand({
     TableName: requireTableName(),
     Key: { pk: "AIR_PRESETS", sk: `PRESET#${presetId}` },
-    UpdateExpression: "SET #raw = :raw, #learned = :learned, #updated = :updated, #mode = if_not_exists(#mode, :mode), #temp = if_not_exists(#temp, :temp), #fan = if_not_exists(#fan, :fan), #swing = if_not_exists(#swing, :swing), #name = if_not_exists(#name, :name), #revision = if_not_exists(#revision, :revision)",
+    UpdateExpression: "SET #learned = :learned, #updated = :updated, #mode = if_not_exists(#mode, :mode), #temp = if_not_exists(#temp, :temp), #fan = if_not_exists(#fan, :fan), #swing = if_not_exists(#swing, :swing), #name = if_not_exists(#name, :name), #revision = if_not_exists(#revision, :revision) REMOVE #raw",
     ExpressionAttributeNames: {
       "#raw": "raw_data", "#learned": "learned_at", "#updated": "updated_at", "#mode": "mode",
       "#temp": "temp_c", "#fan": "fan", "#swing": "swing_v", "#name": "name", "#revision": "revision",
     },
     ExpressionAttributeValues: {
-      ":raw": captured.raw_data,
       ":learned": updatedAt,
       ":updated": updatedAt,
       ":mode": captured.preset.mode,

@@ -226,7 +226,7 @@ void loadPresets() {
 void clearLegacyDesired(JsonObject desired) {
     desired["air_conditioner_command_id"] = nullptr;
     desired["air_conditioner_operation"] = nullptr;
-    desired["air_conditioner_raw_data"] = nullptr;
+    desired["air_conditioner_raw_data"] = nullptr;  // 旧版が残したdesiredの掃除用
     desired["air_conditioner_mode"] = nullptr;
     desired["air_conditioner_temp_c"] = nullptr;
     desired["air_conditioner_fan"] = nullptr;
@@ -238,8 +238,7 @@ void clearLegacyDesired(JsonObject desired) {
 }
 
 bool publishAirEvent(uint8_t presetId, const char* commandId, const char* status,
-                     const AirConditionerPreset& preset, const String& name, uint32_t revision,
-                     const uint32_t* rawData = nullptr, uint16_t rawLength = 0) {
+                     const AirConditionerPreset& preset, const String& name, uint32_t revision) {
     JsonDocument event;
     event["command_id"] = commandId;
     event["preset_id"] = presetId;
@@ -248,10 +247,6 @@ bool publishAirEvent(uint8_t presetId, const char* commandId, const char* status
     event["status"] = status;
     event["reported_at"] = static_cast<uint64_t>(time(nullptr));
     putPreset(event["preset"].to<JsonObject>(), preset);
-    if (rawData && rawLength) {
-        JsonArray timings = event["raw_data"].to<JsonArray>();
-        for (uint16_t index = 0; index < rawLength; ++index) timings.add(rawData[index]);
-    }
     String payload;
     payload.reserve(measureJson(event) + 1);
     serializeJson(event, payload);
@@ -272,7 +267,7 @@ void retryPendingCaptureEvents() {
         if (!slot.cloudSavePending || slot.rawLength < 2) continue;
         const String commandId = String("capture-sync-") + String(presetId) + "-" + String(millis());
         if (publishAirEvent(presetId, commandId.c_str(), "captured", slot.settings, slot.name,
-                            slot.revision, slot.rawData, slot.rawLength)) {
+                            slot.revision)) {
             markCapturePublished(presetId);
         }
     }
@@ -354,7 +349,7 @@ void finishLearning(const uint32_t* rawData, uint16_t rawLength) {
     }
 
     currentMessage = String("Preset ") + String(presetId) + " learned";
-    if (publishAirEvent(presetId, commandId.c_str(), "captured", preset, name, revision, rawData, rawLength)) {
+    if (publishAirEvent(presetId, commandId.c_str(), "captured", preset, name, revision)) {
         markCapturePublished(presetId);
     }
     rememberCommand(commandId.c_str(), "captured");
@@ -379,22 +374,6 @@ void startLearning(uint8_t presetId, const String& commandId,
     currentMessage = String("Learning preset ") + String(presetId);
     publishAirEvent(presetId, commandId.c_str(), "learning", preset, name, revision);
     Serial.printf("[IR] learning started for preset %u (%s)\n", presetId, commandId.c_str());
-}
-
-bool readRawData(JsonVariantConst source, uint32_t* target, uint16_t* length) {
-    if (!source.is<JsonArrayConst>()) return false;
-    JsonArrayConst timings = source.as<JsonArrayConst>();
-    if (timings.size() < 2 || timings.size() > MAX_RAW_ITEMS) return false;
-    uint16_t index = 0;
-    for (JsonVariantConst timing : timings) {
-        if (!timing.is<uint32_t>() && !timing.is<int>()) return false;
-        const int64_t value = timing.as<int64_t>();
-        const uint32_t maxValue = index % 2 == 0 ? UINT16_MAX : MAX_RAW_SPACE_US;
-        if (value <= 0 || static_cast<uint64_t>(value) > maxValue) return false;
-        target[index++] = static_cast<uint32_t>(value);
-    }
-    *length = index;
-    return true;
 }
 
 bool syncPresetSettings(JsonObjectConst desired, uint8_t* syncedPresetId) {
@@ -499,25 +478,22 @@ void handleCommand(JsonObjectConst desired) {
         return;
     }
 
-    uint32_t rawData[MAX_RAW_ITEMS];
-    uint16_t rawLength = 0;
-    bool valid = strcmp(operation, "send") == 0
-        && readRawData(desired["air_conditioner_raw_data"], rawData, &rawLength);
+    const bool valid = strcmp(operation, "send") == 0 && slot.rawLength >= 2;
     const char* status = "failed";
     if (valid) {
         for (uint8_t attempt = 0; attempt < IR_SEND_ATTEMPTS; ++attempt) {
             irsend.enableIROut(IR_CARRIER_HZ, IR_SEND_DUTY_PERCENT);
-            for (uint16_t index = 0; index < rawLength; ++index) {
-                if (index % 2 == 0) irsend.mark(static_cast<uint16_t>(rawData[index]));
-                else irsend.space(rawData[index]);
+            for (uint16_t index = 0; index < slot.rawLength; ++index) {
+                if (index % 2 == 0) irsend.mark(static_cast<uint16_t>(slot.rawData[index]));
+                else irsend.space(slot.rawData[index]);
             }
             if (attempt + 1 < IR_SEND_ATTEMPTS) delay(IR_REPEAT_GAP_MS);
         }
         status = "sent";
         currentMessage = "Raw IR sent";
-        Serial.printf("[IR] sent %u raw timings for %s\n", rawLength, commandId);
+        Serial.printf("[IR] sent %u raw timings for %s\n", slot.rawLength, commandId);
     } else {
-        currentMessage = "Invalid IR data";
+        currentMessage = "Preset not learned";
         Serial.printf("[IR] invalid command %s\n", commandId);
     }
 

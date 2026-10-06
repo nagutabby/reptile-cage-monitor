@@ -29,7 +29,6 @@ interface AirConditionerEvent {
   preset_id: number;
   status: "learning" | "captured" | "sent" | "failed";
   preset: AirConditionerPreset;
-  raw_data?: number[];
 }
 
 const encoder = new TextEncoder();
@@ -132,12 +131,6 @@ export async function start(config: LiveClientConfig): Promise<void> {
     };
   }
 
-  function isRawTimingArray(value: unknown): value is number[] {
-    return Array.isArray(value) && value.length >= 2 && value.length <= 700
-      && value.every((duration, index) => typeof duration === "number" && Number.isInteger(duration)
-        && duration > 0 && duration <= (index % 2 === 0 ? 65_535 : 131_070));
-  }
-
   function selectedPreset(): AirConditionerPresetRecord | undefined {
     return airPresets.find((preset) => preset.preset_id === selectedPresetId);
   }
@@ -185,7 +178,7 @@ export async function start(config: LiveClientConfig): Promise<void> {
     }
     const stored = selectedPreset();
     const dirty = isPresetDirty(stored);
-    const learned = Boolean(stored?.learned && isRawTimingArray(stored.raw_data));
+    const learned = Boolean(stored?.learned);
     if (airAvailability) {
       airAvailability.textContent = !config.lightControl?.token
         ? "ログインするとプリセットを編集できます"
@@ -213,11 +206,6 @@ export async function start(config: LiveClientConfig): Promise<void> {
       status: value.status,
       preset: preset as unknown as AirConditionerPreset,
     };
-    if (value.raw_data !== undefined) {
-      if (!isRawTimingArray(value.raw_data)) return null;
-      result.raw_data = value.raw_data;
-    }
-    if (result.status === "captured" && !result.raw_data) return null;
     return result;
   }
 
@@ -306,7 +294,7 @@ export async function start(config: LiveClientConfig): Promise<void> {
     const token = config.lightControl?.token;
     const preset = currentAirPreset();
     const stored = selectedPreset();
-    if (!token || !preset || !stored || !isRawTimingArray(stored.raw_data) || isPresetDirty(stored) || airRequestInFlight) return;
+    if (!token || !preset || !stored || !stored.learned || isPresetDirty(stored) || airRequestInFlight) return;
     airRequestInFlight = true;
     setText("air-conditioner-control-status", `枠 ${selectedPresetId} のIR送信指示を送信中…`);
     updateAirConditionerForm();
@@ -316,7 +304,6 @@ export async function start(config: LiveClientConfig): Promise<void> {
         preset_id: stored.preset_id,
         revision: stored.revision,
         preset,
-        raw_data: stored.raw_data,
       };
       const response = await apiClient.control["air-conditioner"].$post(
         { json: command },

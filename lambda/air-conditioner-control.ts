@@ -38,7 +38,6 @@ export async function setAirConditionerPreset(
           air_conditioner_temp_c: command.preset.temp_c,
           air_conditioner_fan: command.preset.fan,
           air_conditioner_swing_v: command.preset.swing_v,
-          ...(command.operation === "send" ? { air_conditioner_raw_data: command.raw_data } : {}),
         },
       },
     })),

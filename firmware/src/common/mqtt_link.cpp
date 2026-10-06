@@ -14,6 +14,10 @@
 #endif
 #include "wifi_config.h"
 
+#ifndef MQTT_BUFFER_SIZE
+#define MQTT_BUFFER_SIZE 1536
+#endif
+
 MqttLink::MqttLink(const char* clientId) : clientId_(clientId), client_(secureClient_) {}
 
 void MqttLink::begin() {
@@ -21,9 +25,9 @@ void MqttLink::begin() {
     secureClient_.setCertificate(IOT_DEVICE_CERT);
     secureClient_.setPrivateKey(IOT_PRIVATE_KEY);
     client_.setServer(IOT_ENDPOINT, 8883);
-    // Shadow get/accepted includes desired, reported, and metadata.
-    // Shadow requests/events can carry up to 700 uint32 IR timings as JSON.
-    client_.setBufferSize(8192);
+    // PubSubClient silently drops messages larger than the buffer (shadow get/accepted carries
+    // per-element metadata; the IR "captured" event publishes up to 700 timings).
+    client_.setBufferSize(MQTT_BUFFER_SIZE);
     client_.setKeepAlive(60);
     WiFi.mode(WIFI_STA);
     WiFi.setAutoReconnect(true);

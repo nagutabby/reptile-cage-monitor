@@ -62,14 +62,13 @@ export interface AirConditionerPresetRecord extends AirConditionerPreset {
   name: string;
   revision: number;
   learned: boolean;
-  raw_data?: number[];
 }
 
 export type AirConditionerPresetUpdate = AirConditionerPreset & { name: string };
 
 export type AirConditionerCommand =
   | { operation: "learn"; preset_id: number; preset: AirConditionerPreset; revision?: number }
-  | { operation: "send"; preset_id: number; preset: AirConditionerPreset; revision?: number; raw_data: number[] };
+  | { operation: "send"; preset_id: number; preset: AirConditionerPreset; revision?: number };
 
 export interface SetAirConditionerCommandResult {
   status: "queued";
@@ -113,21 +112,14 @@ function isAirConditionerPreset(value: unknown): value is AirConditionerPreset {
     && typeof preset.swing_v === "string" && AIR_CONDITIONER_SWING_V.has(preset.swing_v as AirConditionerVerticalSwing);
 }
 
-function isRawTimingArray(value: unknown): value is number[] {
-  return Array.isArray(value) && value.length >= 2 && value.length <= 700
-    && value.every((duration, index) => typeof duration === "number" && Number.isInteger(duration)
-      && duration > 0 && duration <= (index % 2 === 0 ? 65_535 : 131_070));
-}
-
 function isAirConditionerCommand(value: unknown): value is AirConditionerCommand {
   if (!value || typeof value !== "object" || Array.isArray(value)) return false;
   const command = value as Record<string, unknown>;
   if (!Number.isInteger(command.preset_id) || Number(command.preset_id) < 1 || Number(command.preset_id) > 4) return false;
   if (command.revision !== undefined && (!Number.isInteger(command.revision) || Number(command.revision) < 0)) return false;
   if (!isAirConditionerPreset(command.preset)) return false;
-  if (command.operation === "learn") return command.raw_data === undefined;
-  if (command.operation !== "send") return false;
-  return isRawTimingArray(command.raw_data);
+  // 送信波形は本体のNVSに学習済みなので、Shadowには載せない(metadataで巨大化するため)
+  return (command.operation === "learn" || command.operation === "send") && command.raw_data === undefined;
 }
 
 const validateAirConditionerPresetPatch: MiddlewareHandler<{}, "/api/air-conditioner-presets/:presetId", AirConditionerPresetPatchInput> = async (context, next) => {
@@ -282,8 +274,6 @@ const DEFAULT_PRESET_SETTINGS: AirConditionerPreset = {
 };
 
 function presetFromRow(presetId: number, item?: Record<string, unknown>): AirConditionerPresetRecord {
-  const raw = item?.raw_data;
-  const validRaw = isRawTimingArray(raw);
   return {
     preset_id: presetId,
     name: typeof item?.name === "string" ? item.name : `プリセット ${presetId}`,
@@ -292,8 +282,7 @@ function presetFromRow(presetId: number, item?: Record<string, unknown>): AirCon
     fan: (item?.fan ?? DEFAULT_PRESET_SETTINGS.fan) as AirConditionerFan,
     swing_v: (item?.swing_v ?? DEFAULT_PRESET_SETTINGS.swing_v) as AirConditionerVerticalSwing,
     revision: Number.isInteger(item?.revision) ? Number(item?.revision) : 0,
-    learned: validRaw,
-    ...(validRaw ? { raw_data: raw as number[] } : {}),
+    learned: typeof item?.learned_at === "string",
   };
 }
 
