@@ -34,6 +34,7 @@ export interface Telemetry {
   observed_at: string;
   temp_c: number;
   humidity: number;
+  battery?: number;
 }
 
 export function parseTelemetry(value: unknown): (Telemetry & { recorded_at: string }) | null {
@@ -46,13 +47,15 @@ export function parseTelemetry(value: unknown): (Telemetry & { recorded_at: stri
     !/^[A-Za-z0-9:_-]+$/.test(item.event_id) ||
     recordedAt === null ||
     typeof item.temp_c !== "number" || !Number.isFinite(item.temp_c) || item.temp_c < -20 || item.temp_c > 60 ||
-    typeof item.humidity !== "number" || !Number.isFinite(item.humidity) || item.humidity < 0 || item.humidity > 100
+    typeof item.humidity !== "number" || !Number.isFinite(item.humidity) || item.humidity < 0 || item.humidity > 100 ||
+    (item.battery !== undefined && (!Number.isInteger(item.battery) || (item.battery as number) < 0 || (item.battery as number) > 100))
   ) return null;
   return {
     event_id: item.event_id,
     observed_at: item.observed_at as string,
     temp_c: item.temp_c,
     humidity: item.humidity,
+    ...(item.battery === undefined ? {} : { battery: item.battery as number }),
     recorded_at: recordedAt,
   };
 }
@@ -198,6 +201,7 @@ async function saveTelemetry(value: unknown): Promise<void> {
         event_id: telemetry.event_id,
         temp_c: telemetry.temp_c,
         humidity: telemetry.humidity,
+        ...(telemetry.battery === undefined ? {} : { battery: telemetry.battery }),
         recorded_at: `${telemetry.recorded_at.slice(0, 19)}+00:00`,
       },
       ConditionExpression: "attribute_not_exists(#pk) AND attribute_not_exists(#sk)",

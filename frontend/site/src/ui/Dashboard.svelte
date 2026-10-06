@@ -39,7 +39,7 @@
     is_heater_on_changed_at: null,
   });
   let rangeMinutes = $state(360);
-  let latestTelemetry = $state<{ temp_c: number; humidity: number; observed_at: string } | null>(null);
+  let latestTelemetry = $state<{ temp_c: number; humidity: number; battery?: number; observed_at: string } | null>(null);
   let telemetryIsLive = $state(false);
   let message = $state("接続中…");
   let loadingHistory = $state(false);
@@ -159,6 +159,7 @@
         latestTelemetry = {
           temp_c: latest.temp_c,
           humidity: latest.humidity,
+          ...(latest.battery === undefined ? {} : { battery: latest.battery }),
           observed_at: latest.recorded_at,
         };
       }
@@ -202,7 +203,7 @@
     let stateTimer: ReturnType<typeof setInterval>;
     let historyTimer: ReturnType<typeof setInterval>;
     const onTelemetry = (event: Event) => {
-      latestTelemetry = (event as CustomEvent<{ temp_c: number; humidity: number; observed_at: string }>).detail;
+      latestTelemetry = (event as CustomEvent<{ temp_c: number; humidity: number; battery?: number; observed_at: string }>).detail;
       telemetryIsLive = true;
       message = "";
     };
@@ -264,9 +265,10 @@
         {/if}
       </p>
     </div>
-    <div class="grid grid-cols-2 gap-3 lg:grid-cols-4">
+    <div class="grid grid-cols-2 gap-3 lg:grid-cols-5">
       <article class="stat rounded-box border border-base-300 bg-base-200"><div class="stat-title">最新温度</div><div class="stat-value text-warning" id="temperature">{latestTelemetry ? `${latestTelemetry.temp_c.toFixed(1)} ℃` : "-- ℃"}</div></article>
       <article class="stat rounded-box border border-base-300 bg-base-200"><div class="stat-title">最新湿度</div><div class="stat-value text-info" id="humidity">{latestTelemetry ? `${latestTelemetry.humidity.toFixed(0)} %` : "-- %"}</div></article>
+      <article class="stat rounded-box border border-base-300 bg-base-200"><div class="stat-title">センサー電池</div><div class="stat-value" id="battery">{latestTelemetry?.battery === undefined ? "-- %" : `${latestTelemetry.battery} %`}</div></article>
       <article class="stat rounded-box border border-base-300 bg-base-200"><div class="stat-title">ライト</div><div class="stat-value" id="light">不明</div></article>
       <article class="stat rounded-box border border-base-300 bg-base-200"><div class="stat-title">パネルヒーター</div><div class="stat-value" id="heater">不明</div></article>
     </div>

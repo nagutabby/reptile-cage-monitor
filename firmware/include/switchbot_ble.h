@@ -55,7 +55,8 @@ bool plugReadState(const char* mac, bool& isOn, uint32_t timeoutMs = 3000,
 // section of meter.md. Scans for `scanSeconds`, looking for an advertisement
 // from `mac`. Returns true and fills tempC/humidity on success. Retries the
 // whole scan up to `maxAttempts` times if the device isn't seen.
+// `batteryPct` (optional) receives 0-100, or -1 if the advertisement carries no service data.
 bool meterScanRead(const char* mac, float& tempC, uint8_t& humidity, uint32_t scanSeconds = 5,
-                    uint8_t maxAttempts = 3);
+                    uint8_t maxAttempts = 3, int* batteryPct = nullptr);
 
 } // namespace SwitchBotBLE

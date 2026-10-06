@@ -9,6 +9,7 @@ export interface ReadingRecord {
   event_id?: string;
   temp_c: number;
   humidity: number;
+  battery?: number;
   recorded_at: string;
 }
 
@@ -149,6 +150,7 @@ async function listReadings(minutes: number): Promise<ReadingRecord[]> {
         ...(typeof item.event_id === "string" ? { event_id: item.event_id } : {}),
         temp_c: Number(item.temp_c),
         humidity: Number(item.humidity),
+        ...(typeof item.battery === "number" ? { battery: item.battery } : {}),
         recorded_at: String(item.recorded_at),
       });
     }

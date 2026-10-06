@@ -33,7 +33,7 @@
   onMount(() => {
     chart = new Chart(canvas, {
       type: "line",
-      data: { datasets: [{ data: [], borderColor: color, backgroundColor: color, borderWidth: 2, pointRadius: 2, tension: 0.2 }] },
+      data: { datasets: [{ data: [], borderColor: color, backgroundColor: color, borderWidth: 2, pointRadius: 0, pointHoverRadius: 4, tension: 0.2 }] },
       options: {
         animation: false,
         responsive: true,

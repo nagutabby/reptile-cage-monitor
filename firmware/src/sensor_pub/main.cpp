@@ -17,7 +17,8 @@ uint32_t nextReadMs = 0;
 void sendReading() {
     float tempC;
     uint8_t humidity;
-    if (!SwitchBotBLE::meterScanRead(METER_MAC, tempC, humidity)) {
+    int battery = -1;
+    if (!SwitchBotBLE::meterScanRead(METER_MAC, tempC, humidity, 5, 3, &battery)) {
         Serial.println("[Meter] scan failed");
         return;
     }
@@ -31,9 +32,10 @@ void sendReading() {
     doc["observed_at"] = timestamp;
     doc["temp_c"] = tempC;
     doc["humidity"] = humidity;
+    if (battery >= 0) doc["battery"] = battery;
     char payload[256];
     serializeJson(doc, payload, sizeof(payload));
-    Serial.printf("[Meter] %.1f C %u %%\n", tempC, humidity);
+    Serial.printf("[Meter] %.1f C %u %% battery %d %%\n", tempC, humidity, battery);
     Serial.println(mqtt.publish(TOPIC, payload, true) ? "[MQTT] published" : "[MQTT] publish failed");
 }
 } // namespace

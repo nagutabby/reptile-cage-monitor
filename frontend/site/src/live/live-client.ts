@@ -22,6 +22,7 @@ interface TelemetryPayload {
   observed_at: string;
   temp_c: number;
   humidity: number;
+  battery?: number;
 }
 
 interface AirConditionerEvent {
@@ -266,6 +267,7 @@ export async function start(config: LiveClientConfig): Promise<void> {
               observed_at: data.observed_at,
               temp_c: Number(data.temp_c),
               humidity: Number(data.humidity),
+              ...(typeof data.battery === "number" ? { battery: data.battery } : {}),
             };
             const age = Date.now() - Date.parse(telemetry.observed_at);
             if (!Number.isFinite(age) || age < 0 || age > 120000) return;
