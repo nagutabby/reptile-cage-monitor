@@ -17,13 +17,10 @@
   type Reading = InferResponseType<typeof apiClient.api.readings.$get, 200>[number] & Point;
   type DeviceState = InferResponseType<typeof apiClient.api.device_state.$get, 200>;
 
-  const ranges = [
-    { label: "30分", minutes: 30 },
-    { label: "6時間", minutes: 360 },
-    { label: "12時間", minutes: 720 },
-    { label: "1日", minutes: 1440 },
-    { label: "1週間", minutes: 10080 },
-  ];
+  const rangeMin = 30;
+  const rangeMax = 4320;
+  const rangeStep = 30;
+  const rangeDebounceMs = 500;
   const tempMin = 24;
   const tempMax = 32;
   const humidityMin = 40;
@@ -39,10 +36,29 @@
     is_heater_on_changed_at: null,
   });
   let rangeMinutes = $state(360);
+  let sliderMinutes = $state(360);
+  let historyRequestId = 0;
+  let rangeTimer: ReturnType<typeof setTimeout> | undefined;
   let latestTelemetry = $state<{ temp_c: number; humidity: number; battery?: number; observed_at: string } | null>(null);
   let telemetryIsLive = $state(false);
   let message = $state("接続中…");
   let loadingHistory = $state(false);
+
+  function formatDuration(minutes: number): string {
+    const days = Math.floor(minutes / 1440);
+    const hours = Math.floor((minutes % 1440) / 60);
+    const mins = minutes % 60;
+    return `${days ? `${days}日` : ""}${hours ? `${hours}時間` : ""}${mins ? `${mins}分` : ""}`;
+  }
+
+  // スライダー操作が止まってから一定時間後にだけ履歴を取得する
+  function onRangeInput() {
+    clearTimeout(rangeTimer);
+    rangeTimer = setTimeout(() => {
+      rangeMinutes = sliderMinutes;
+      void loadHistory();
+    }, rangeDebounceMs);
+  }
 
   function formatObservedAt(value: string): string {
     return new Date(value).toLocaleString("ja-JP", { timeZone: "Asia/Tokyo" });
@@ -148,12 +164,15 @@
   }
 
   async function loadHistory() {
+    const requestId = ++historyRequestId;
     loadingHistory = true;
     try {
-      readings = await getJson(apiClient.api.readings.$get(
+      const rows = await getJson(apiClient.api.readings.$get(
         { query: { minutes: String(rangeMinutes) } },
         { init: { cache: "no-store" } },
       ));
+      if (requestId !== historyRequestId) return;
+      readings = rows;
       if (!telemetryIsLive && readings.length) {
         const latest = readings.at(-1)!;
         latestTelemetry = {
@@ -171,7 +190,7 @@
     } catch (error) {
       message = error instanceof Error ? `履歴を読み込めません: ${error.message}` : "履歴を読み込めません";
     } finally {
-      loadingHistory = false;
+      if (requestId === historyRequestId) loadingHistory = false;
     }
   }
 
@@ -227,6 +246,7 @@
     return () => {
       stopped = true;
       window.removeEventListener("reptile-cage-monitor:telemetry", onTelemetry);
+      clearTimeout(rangeTimer);
       clearInterval(historyTimer);
       clearInterval(stateTimer);
     };
@@ -311,10 +331,12 @@
   <section class="mt-10" aria-label="温湿度の履歴">
     <div class="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
       <div><p class="text-xs font-bold tracking-widest text-secondary">HISTORY</p><h2 class="text-xl font-semibold">温湿度の推移</h2></div>
-      <div class="join w-full sm:w-auto" role="group" aria-label="グラフの表示範囲">
-        {#each ranges as range}
-          <button class="btn btn-sm join-item flex-1 sm:flex-none" class:btn-primary={rangeMinutes === range.minutes} aria-pressed={rangeMinutes === range.minutes} onclick={() => { rangeMinutes = range.minutes; void loadHistory(); }}>{range.label}</button>
-        {/each}
+      <div class="w-full sm:w-80">
+        <label class="flex items-center justify-between text-sm" for="history-range">
+          <span>表示範囲</span><output class="font-semibold" for="history-range">直近 {formatDuration(sliderMinutes)}</output>
+        </label>
+        <input id="history-range" class="range range-primary range-sm w-full" type="range" min={rangeMin} max={rangeMax} step={rangeStep} bind:value={sliderMinutes} oninput={onRangeInput} aria-valuetext={`直近${formatDuration(sliderMinutes)}`} />
+        <div class="flex justify-between text-xs text-base-content/60"><span>30分</span><span>3日</span></div>
       </div>
     </div>
     <div class="card card-border mt-3 border-base-300 bg-base-200">

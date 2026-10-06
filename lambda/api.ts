@@ -84,8 +84,8 @@ function isAirConditionerSettings(value: unknown): value is AirConditionerSettin
 const validateReadingsQuery: MiddlewareHandler<{}, "/api/readings", ReadingsQueryInput> = async (context, next) => {
   const rawMinutes = context.req.query("minutes");
   const minutes = rawMinutes === undefined ? 360 : Number(rawMinutes);
-  if (!Number.isInteger(minutes) || minutes < 1 || minutes > 10_080) {
-    return context.json({ error: "minutes must be between 1 and 10080" }, 400);
+  if (!Number.isInteger(minutes) || minutes < 30 || minutes > 4_320) {
+    return context.json({ error: "minutes must be between 30 and 4320" }, 400);
   }
   context.req.addValidatedData("query", { minutes });
   await next();

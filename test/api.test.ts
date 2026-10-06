@@ -43,7 +43,7 @@ describe("Hono API", () => {
     const valid = await app.request("/api/readings");
     expect(valid.status).toBe(200);
     expect(dependencies.listReadings).toHaveBeenCalledWith(360);
-    expect((await app.request("/api/readings?minutes=10081")).status).toBe(400);
+    expect((await app.request("/api/readings?minutes=4321")).status).toBe(400);
     expect((await app.request("/api/readings?minutes=1.5")).status).toBe(400);
   });
 
