@@ -1,11 +1,9 @@
-import { GetCommand, QueryCommand, UpdateCommand } from "@aws-sdk/lib-dynamodb";
+import { GetCommand, QueryCommand } from "@aws-sdk/lib-dynamodb";
 import { Hono, type MiddlewareHandler } from "hono";
 import { handle } from "@hono/aws-lambda";
 import { ddb, requireTableName } from "./database";
 import { setLight } from "./light-control";
-import { setAirConditionerPreset, syncAirConditionerPreset as sendPresetSync } from "./air-conditioner-control";
-
-const AIR_PRESET_IDS = [1, 2, 3, 4] as const;
+import { setAirConditioner } from "./air-conditioner-control";
 
 export interface ReadingRecord {
   id: number | string;
@@ -19,10 +17,7 @@ export interface ApiDependencies {
   listReadings(minutes: number): Promise<ReadingRecord[]>;
   getDeviceState(): Promise<DeviceState>;
   setLight(isLightOn: boolean): Promise<SetLightResult>;
-  setAirConditionerPreset(command: AirConditionerCommand): Promise<SetAirConditionerCommandResult>;
-  listAirConditionerPresets(): Promise<AirConditionerPresetRecord[]>;
-  updateAirConditionerPreset(presetId: number, update: AirConditionerPresetUpdate): Promise<AirConditionerPresetRecord>;
-  syncAirConditionerPreset(preset: AirConditionerPresetRecord): Promise<void>;
+  setAirConditioner(settings: AirConditionerSettings): Promise<SetAirConditionerResult>;
   getPublicConfig(): PublicConfig;
 }
 
@@ -50,27 +45,15 @@ export type AirConditionerMode = "cool" | "heat";
 export type AirConditionerFan = "auto" | "quiet" | "1" | "2" | "3" | "4" | "5";
 export type AirConditionerVerticalSwing = "off" | "swing" | "highest" | "high" | "upper_middle" | "lower_middle" | "low" | "lowest" | "breeze" | "circulate";
 
-export interface AirConditionerPreset {
+export interface AirConditionerSettings {
+  power: boolean;
   mode: AirConditionerMode;
   temp_c: number;
   fan: AirConditionerFan;
   swing_v: AirConditionerVerticalSwing;
 }
 
-export interface AirConditionerPresetRecord extends AirConditionerPreset {
-  preset_id: number;
-  name: string;
-  revision: number;
-  learned: boolean;
-}
-
-export type AirConditionerPresetUpdate = AirConditionerPreset & { name: string };
-
-export type AirConditionerCommand =
-  | { operation: "learn"; preset_id: number; preset: AirConditionerPreset; revision?: number }
-  | { operation: "send"; preset_id: number; preset: AirConditionerPreset; revision?: number };
-
-export interface SetAirConditionerCommandResult {
+export interface SetAirConditionerResult {
   status: "queued";
   command_id: string;
 }
@@ -86,13 +69,8 @@ type LightBodyInput = {
 };
 
 type AirConditionerBodyInput = {
-  in: { json: AirConditionerCommand };
-  out: { json: AirConditionerCommand };
-};
-
-type AirConditionerPresetPatchInput = {
-  in: { json: AirConditionerPresetUpdate; param: { presetId: string } };
-  out: { json: AirConditionerPresetUpdate; param: { presetId: string } };
+  in: { json: AirConditionerSettings };
+  out: { json: AirConditionerSettings };
 };
 
 const AIR_CONDITIONER_MODES = new Set<AirConditionerMode>(["cool", "heat"]);
@@ -101,56 +79,17 @@ const AIR_CONDITIONER_SWING_V = new Set<AirConditionerVerticalSwing>([
   "off", "swing", "highest", "high", "upper_middle", "lower_middle", "low", "lowest", "breeze", "circulate",
 ]);
 
-function isAirConditionerPreset(value: unknown): value is AirConditionerPreset {
+function isAirConditionerSettings(value: unknown): value is AirConditionerSettings {
   if (!value || typeof value !== "object" || Array.isArray(value)) return false;
-  const preset = value as Record<string, unknown>;
-  if (typeof preset.mode !== "string" || !AIR_CONDITIONER_MODES.has(preset.mode as AirConditionerMode)) return false;
-  if (typeof preset.temp_c !== "number" || !Number.isFinite(preset.temp_c)
-    || preset.temp_c < 10 || preset.temp_c > 32 || !Number.isInteger(preset.temp_c * 2)) return false;
-  if (preset.mode === "cool" && preset.temp_c < 18) return false;
-  return typeof preset.fan === "string" && AIR_CONDITIONER_FANS.has(preset.fan as AirConditionerFan)
-    && typeof preset.swing_v === "string" && AIR_CONDITIONER_SWING_V.has(preset.swing_v as AirConditionerVerticalSwing);
+  const settings = value as Record<string, unknown>;
+  if (typeof settings.power !== "boolean") return false;
+  if (typeof settings.mode !== "string" || !AIR_CONDITIONER_MODES.has(settings.mode as AirConditionerMode)) return false;
+  if (typeof settings.temp_c !== "number" || !Number.isFinite(settings.temp_c)
+    || settings.temp_c < 10 || settings.temp_c > 32 || !Number.isInteger(settings.temp_c * 2)) return false;
+  if (settings.mode === "cool" && settings.temp_c < 18) return false;
+  return typeof settings.fan === "string" && AIR_CONDITIONER_FANS.has(settings.fan as AirConditionerFan)
+    && typeof settings.swing_v === "string" && AIR_CONDITIONER_SWING_V.has(settings.swing_v as AirConditionerVerticalSwing);
 }
-
-function isAirConditionerCommand(value: unknown): value is AirConditionerCommand {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
-  const command = value as Record<string, unknown>;
-  if (!Number.isInteger(command.preset_id) || Number(command.preset_id) < 1 || Number(command.preset_id) > 4) return false;
-  if (command.revision !== undefined && (!Number.isInteger(command.revision) || Number(command.revision) < 0)) return false;
-  if (!isAirConditionerPreset(command.preset)) return false;
-  // 送信波形は本体のNVSに学習済みなので、Shadowには載せない(metadataで巨大化するため)
-  return (command.operation === "learn" || command.operation === "send") && command.raw_data === undefined;
-}
-
-const validateAirConditionerPresetPatch: MiddlewareHandler<{}, "/api/air-conditioner-presets/:presetId", AirConditionerPresetPatchInput> = async (context, next) => {
-  const rawId = context.req.param("presetId");
-  const presetId = Number(rawId);
-  if (!/^[1-4]$/.test(rawId)) return context.json({ error: "presetId must be between 1 and 4" }, 400);
-  let body: unknown;
-  try {
-    body = await context.req.json();
-  } catch {
-    return context.json({ error: "invalid JSON body" }, 400);
-  }
-  if (!body || typeof body !== "object" || Array.isArray(body)) {
-    return context.json({ error: "invalid preset settings" }, 400);
-  }
-  const value = body as Record<string, unknown>;
-  if (typeof value.name !== "string") return context.json({ error: "name must be a string" }, 400);
-  const name = value.name.trim();
-  const settings = {
-    mode: value.mode,
-    temp_c: value.temp_c,
-    fan: value.fan,
-    swing_v: value.swing_v,
-  };
-  if (name.length > 48 || !isAirConditionerPreset(settings)) {
-    return context.json({ error: "invalid preset settings" }, 400);
-  }
-  context.req.addValidatedData("param", { presetId: rawId });
-  context.req.addValidatedData("json", { ...settings, name: name || `プリセット ${presetId}` } as AirConditionerPresetUpdate);
-  await next();
-};
 
 const validateReadingsQuery: MiddlewareHandler<{}, "/api/readings", ReadingsQueryInput> = async (context, next) => {
   const rawMinutes = context.req.query("minutes");
@@ -183,8 +122,9 @@ const validateAirConditionerBody: MiddlewareHandler<{}, "/control/air-conditione
   } catch {
     return context.json({ error: "invalid JSON body" }, 400);
   }
-  if (!isAirConditionerCommand(body)) return context.json({ error: "invalid IR preset command" }, 400);
-  context.req.addValidatedData("json", body);
+  if (!isAirConditionerSettings(body)) return context.json({ error: "invalid air-conditioner settings" }, 400);
+  const { power, mode, temp_c, fan, swing_v } = body;
+  context.req.addValidatedData("json", { power, mode, temp_c, fan, swing_v });
   await next();
 };
 
@@ -199,21 +139,12 @@ export function createApi(dependencies: ApiDependencies) {
       return context.json(await dependencies.listReadings(minutes));
     })
     .get("/api/device_state", async (context) => context.json(await dependencies.getDeviceState()))
-    .get("/api/air-conditioner-presets", async (context) => {
-      return context.json(await dependencies.listAirConditionerPresets());
-    })
-    .patch("/api/air-conditioner-presets/:presetId", validateAirConditionerPresetPatch, async (context) => {
-      const { presetId } = context.req.valid("param");
-      const preset = await dependencies.updateAirConditionerPreset(Number(presetId), context.req.valid("json"));
-      await dependencies.syncAirConditionerPreset(preset);
-      return context.json(preset);
-    })
     .post("/control/light", validateLightBody, async (context) => {
       const { is_light_on: isLightOn } = context.req.valid("json");
       return context.json(await dependencies.setLight(isLightOn));
     })
     .post("/control/air-conditioner", validateAirConditionerBody, async (context) => {
-      return context.json(await dependencies.setAirConditionerPreset(context.req.valid("json")));
+      return context.json(await dependencies.setAirConditioner(context.req.valid("json")));
     });
 }
 
@@ -269,74 +200,11 @@ async function getDeviceState(): Promise<DeviceState> {
   };
 }
 
-const DEFAULT_PRESET_SETTINGS: AirConditionerPreset = {
-  mode: "cool", temp_c: 27, fan: "auto", swing_v: "off",
-};
-
-function presetFromRow(presetId: number, item?: Record<string, unknown>): AirConditionerPresetRecord {
-  return {
-    preset_id: presetId,
-    name: typeof item?.name === "string" ? item.name : `プリセット ${presetId}`,
-    mode: (item?.mode ?? DEFAULT_PRESET_SETTINGS.mode) as AirConditionerMode,
-    temp_c: Number(item?.temp_c ?? DEFAULT_PRESET_SETTINGS.temp_c),
-    fan: (item?.fan ?? DEFAULT_PRESET_SETTINGS.fan) as AirConditionerFan,
-    swing_v: (item?.swing_v ?? DEFAULT_PRESET_SETTINGS.swing_v) as AirConditionerVerticalSwing,
-    revision: Number.isInteger(item?.revision) ? Number(item?.revision) : 0,
-    learned: typeof item?.learned_at === "string",
-  };
-}
-
-async function listAirConditionerPresets(): Promise<AirConditionerPresetRecord[]> {
-  const result = await ddb.send(new QueryCommand({
-    TableName: requireTableName(),
-    KeyConditionExpression: "#pk = :pk AND #sk BETWEEN :first AND :last",
-    ExpressionAttributeNames: { "#pk": "pk", "#sk": "sk" },
-    ExpressionAttributeValues: { ":pk": "AIR_PRESETS", ":first": "PRESET#1", ":last": "PRESET#4" },
-  }));
-  const byId = new Map<number, Record<string, unknown>>();
-  for (const item of result.Items ?? []) {
-    const match = typeof item.sk === "string" ? /^PRESET#([1-4])$/.exec(item.sk) : null;
-    if (match) byId.set(Number(match[1]), item);
-  }
-  return AIR_PRESET_IDS.map((presetId) => presetFromRow(presetId, byId.get(presetId)));
-}
-
-async function updateAirConditionerPreset(
-  presetId: number,
-  update: AirConditionerPresetUpdate,
-): Promise<AirConditionerPresetRecord> {
-  const now = new Date().toISOString();
-  const result = await ddb.send(new UpdateCommand({
-    TableName: requireTableName(),
-    Key: { pk: "AIR_PRESETS", sk: `PRESET#${presetId}` },
-    UpdateExpression: "SET #name = :name, #mode = :mode, #temp = :temp, #fan = :fan, #swing = :swing, #updated = :updated, #revision = if_not_exists(#revision, :zero) + :one",
-    ExpressionAttributeNames: {
-      "#name": "name", "#mode": "mode", "#temp": "temp_c", "#fan": "fan",
-      "#swing": "swing_v", "#updated": "updated_at", "#revision": "revision",
-    },
-    ExpressionAttributeValues: {
-      ":name": update.name,
-      ":mode": update.mode,
-      ":temp": update.temp_c,
-      ":fan": update.fan,
-      ":swing": update.swing_v,
-      ":updated": now,
-      ":zero": 0,
-      ":one": 1,
-    },
-    ReturnValues: "ALL_NEW",
-  }));
-  return presetFromRow(presetId, result.Attributes);
-}
-
 export const app = createApi({
   listReadings,
   getDeviceState,
   setLight,
-  setAirConditionerPreset,
-  listAirConditionerPresets,
-  updateAirConditionerPreset,
-  syncAirConditionerPreset: sendPresetSync,
+  setAirConditioner,
   getPublicConfig: (): PublicConfig => ({
     region: process.env.AWS_REGION ?? "ap-northeast-1",
     endpoint: required("IOT_ENDPOINT"),

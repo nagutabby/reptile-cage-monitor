@@ -1,7 +1,7 @@
 import mqtt, { type MqttClient } from "mqtt";
 import { CognitoIdentityClient, GetCredentialsForIdentityCommand, GetIdCommand } from "@aws-sdk/client-cognito-identity";
 import { apiClient } from "../api-client";
-import type { AirConditionerPreset, AirConditionerPresetRecord } from "../../../../lambda/api";
+import type { AirConditionerSettings } from "../../../../lambda/api";
 
 export interface LiveClientConfig {
   region: string;
@@ -26,9 +26,7 @@ interface TelemetryPayload {
 
 interface AirConditionerEvent {
   command_id: string;
-  preset_id: number;
-  status: "learning" | "captured" | "sent" | "failed";
-  preset: AirConditionerPreset;
+  status: "sent" | "failed";
 }
 
 const encoder = new TextEncoder();
@@ -82,131 +80,53 @@ export async function start(config: LiveClientConfig): Promise<void> {
     const element = document.getElementById("light-control-status");
     if (element) element.textContent = value;
   };
+  const airPower = document.querySelector<HTMLSelectElement>("#ac-power");
   const airMode = document.querySelector<HTMLSelectElement>("#ac-mode");
   const airTemp = document.querySelector<HTMLInputElement>("#ac-temp");
   const airFan = document.querySelector<HTMLSelectElement>("#ac-fan");
   const airSwingV = document.querySelector<HTMLSelectElement>("#ac-swing-v");
-  const airPresetName = document.querySelector<HTMLInputElement>("#ac-preset-name");
-  const airSaveButton = document.querySelector<HTMLButtonElement>("#air-conditioner-save");
   const airSendButton = document.querySelector<HTMLButtonElement>("#air-conditioner-send");
-  const airAvailability = document.querySelector<HTMLElement>("#ac-preset-availability");
+  const airAvailability = document.querySelector<HTMLElement>("#ac-availability");
   const airForm = document.querySelector<HTMLFormElement>("#air-conditioner-form");
-  const presetSlotButtons = Array.from(document.querySelectorAll<HTMLButtonElement>("[data-air-preset-id]"));
-  let airPresets: AirConditionerPresetRecord[] = [];
-  let selectedPresetId = 1;
-  let presetsLoaded = false;
   let airRequestInFlight = false;
-  let savingPreset = false;
   let activeAirCommandId: string | null = null;
   let airCommandTimeout: ReturnType<typeof setTimeout> | undefined;
   const receivedAirResults = new Map<string, AirConditionerEvent>();
 
-  function presetName(preset: AirConditionerPreset): string {
-    const mode = preset.mode === "cool" ? "冷房" : "暖房";
-    const swingLabels: Record<AirConditionerPreset["swing_v"], string> = {
-      off: "固定", swing: "スイング", highest: "一番上", high: "上", upper_middle: "上中",
-      lower_middle: "下中", low: "下", lowest: "一番下", breeze: "そよ風", circulate: "循環",
-    };
-    const fanLabels: Record<AirConditionerPreset["fan"], string> = {
-      auto: "自動", quiet: "静音", "1": "1（弱）", "2": "2", "3": "3", "4": "4", "5": "5（強）",
-    };
-    const swing = swingLabels[preset.swing_v];
-    const fan = fanLabels[preset.fan];
-    return `${mode} ${preset.temp_c.toFixed(1)}℃・${swing}・${fan}`;
-  }
-
-  function currentAirPreset(): AirConditionerPreset | null {
+  function currentAirSettings(): AirConditionerSettings | null {
+    const power = airPower?.value;
     const mode = airMode?.value;
     const temp = Number(airTemp?.value);
     const fan = airFan?.value;
     const swingV = airSwingV?.value;
-    if ((mode !== "cool" && mode !== "heat") || !Number.isFinite(temp)
+    if ((power !== "on" && power !== "off") || (mode !== "cool" && mode !== "heat") || !Number.isFinite(temp)
       || !Number.isInteger(temp * 2) || temp < 10 || temp > 32
       || (mode === "cool" && temp < 18) || !fan || !swingV) return null;
     return {
+      power: power === "on",
       mode,
       temp_c: temp,
-      fan: fan as AirConditionerPreset["fan"],
-      swing_v: swingV as AirConditionerPreset["swing_v"],
+      fan: fan as AirConditionerSettings["fan"],
+      swing_v: swingV as AirConditionerSettings["swing_v"],
     };
-  }
-
-  function selectedPreset(): AirConditionerPresetRecord | undefined {
-    return airPresets.find((preset) => preset.preset_id === selectedPresetId);
-  }
-
-  function renderPresetSlots(): void {
-    for (const button of presetSlotButtons) {
-      const presetId = Number(button.dataset.airPresetId);
-      const preset = airPresets.find((item) => item.preset_id === presetId);
-      button.textContent = preset
-        ? `枠 ${presetId} · ${preset.name} · ${preset.learned ? "学習済み" : "未学習"}`
-        : `枠 ${presetId} · 読み込み中`;
-      button.setAttribute("aria-pressed", String(presetId === selectedPresetId));
-      button.disabled = !config.lightControl?.token || !presetsLoaded || savingPreset;
-    }
-  }
-
-  function setPresetForm(preset: AirConditionerPresetRecord): void {
-    if (!airMode || !airTemp || !airFan || !airSwingV || !airPresetName) return;
-    airMode.value = preset.mode;
-    airTemp.value = String(preset.temp_c);
-    airFan.value = preset.fan;
-    airSwingV.value = preset.swing_v;
-    airPresetName.value = preset.name;
-    updateAirConditionerForm();
-  }
-
-  function isPresetDirty(preset: AirConditionerPresetRecord | undefined): boolean {
-    const formPreset = currentAirPreset();
-    if (!preset || !formPreset || !airPresetName) return true;
-    return formPreset.mode !== preset.mode || formPreset.temp_c !== preset.temp_c
-      || formPreset.fan !== preset.fan || formPreset.swing_v !== preset.swing_v
-      || airPresetName.value.trim() !== preset.name;
   }
 
   function updateAirConditionerForm(): void {
-    if (!airMode || !airTemp || !airSaveButton || !airSendButton) return;
+    if (!airMode || !airTemp || !airSendButton) return;
     airTemp.min = airMode.value === "cool" ? "18" : "10";
     if (airMode.value === "cool" && Number(airTemp.value) < 18) airTemp.value = "18";
-    const preset = currentAirPreset();
-    if (!preset) {
-      if (airAvailability) airAvailability.textContent = "温度を入力してください";
-      airSaveButton.disabled = true;
-      airSendButton.disabled = true;
-      return;
-    }
-    const stored = selectedPreset();
-    const dirty = isPresetDirty(stored);
-    const learned = Boolean(stored?.learned);
+    const loggedIn = Boolean(config.lightControl?.token);
+    const valid = currentAirSettings() !== null;
     if (airAvailability) {
-      airAvailability.textContent = !config.lightControl?.token
-        ? "ログインするとプリセットを編集できます"
-        : dirty ? "変更した設定を保存してください"
-          : learned ? `枠 ${selectedPresetId} は学習済みです` : `枠 ${selectedPresetId} は未学習です。Unit IR本体で学習してください`;
+      airAvailability.textContent = !loggedIn ? "ログインするとエアコンを操作できます"
+        : valid ? "" : "温度を入力してください";
     }
-    const canControl = Boolean(config.lightControl?.token) && presetsLoaded && !airRequestInFlight && !savingPreset;
-    airSaveButton.disabled = !canControl || !stored || !dirty;
-    airSendButton.disabled = !canControl || dirty || !learned;
-    renderPresetSlots();
+    airSendButton.disabled = !loggedIn || !valid || airRequestInFlight || activeAirCommandId !== null;
   }
 
   function validAirEvent(value: Record<string, unknown>): AirConditionerEvent | null {
-    const preset = value.preset as Record<string, unknown> | undefined;
-    if (typeof value.command_id !== "string"
-      || !Number.isInteger(value.preset_id) || Number(value.preset_id) < 1 || Number(value.preset_id) > 4
-      || (value.status !== "learning" && value.status !== "captured" && value.status !== "sent" && value.status !== "failed")
-      || !preset || typeof preset !== "object"
-      || (preset.mode !== "cool" && preset.mode !== "heat")
-      || typeof preset.temp_c !== "number" || !Number.isInteger(preset.temp_c * 2)
-      || typeof preset.fan !== "string" || typeof preset.swing_v !== "string") return null;
-    const result: AirConditionerEvent = {
-      command_id: value.command_id,
-      preset_id: Number(value.preset_id),
-      status: value.status,
-      preset: preset as unknown as AirConditionerPreset,
-    };
-    return result;
+    if (typeof value.command_id !== "string" || (value.status !== "sent" && value.status !== "failed")) return null;
+    return { command_id: value.command_id, status: value.status };
   }
 
   function handleAirConditionerEvent(event: AirConditionerEvent): void {
@@ -215,98 +135,25 @@ export async function start(config: LiveClientConfig): Promise<void> {
       const oldest = receivedAirResults.keys().next().value;
       if (oldest) receivedAirResults.delete(oldest);
     }
-    if (event.status === "captured") {
-      setText("air-conditioner-control-status", `本体で枠 ${event.preset_id} の信号を学習しました`);
-      setTimeout(() => void loadAirPresets(), 1500);
-    }
-    if (activeAirCommandId !== null && activeAirCommandId !== event.command_id) return;
-    if (event.status === "learning") {
-      setText("air-conditioner-control-status", `枠 ${event.preset_id} の信号を待っています（60秒以内）`);
-      return;
-    }
-    if (event.status === "captured") {
-      clearTimeout(airCommandTimeout);
-      setText("air-conditioner-control-status", `枠 ${event.preset_id} の信号を保存しました`);
-    } else if (event.status === "sent") {
-      clearTimeout(airCommandTimeout);
-      setText("air-conditioner-control-status", `枠 ${event.preset_id} のIR信号を送信しました（本体の受信状態は未確認）`);
-    } else if (event.status === "failed") {
-      clearTimeout(airCommandTimeout);
-      setText("air-conditioner-control-status", "IR学習または送信に失敗しました");
-    }
-    if (activeAirCommandId === event.command_id) activeAirCommandId = null;
+    if (activeAirCommandId !== event.command_id) return;
+    clearTimeout(airCommandTimeout);
+    activeAirCommandId = null;
+    setText("air-conditioner-control-status", event.status === "sent"
+      ? "IR信号を送信しました（エアコン本体の受信状態は未確認）"
+      : "IR送信に失敗しました");
     updateAirConditionerForm();
-  }
-
-  async function loadAirPresets(): Promise<void> {
-    const token = config.lightControl?.token;
-    if (!token) {
-      airAvailability && (airAvailability.textContent = "ログインするとプリセットを編集できます");
-      return;
-    }
-    try {
-      const response = await fetch("/api/air-conditioner-presets", {
-        headers: { Authorization: `Bearer ${token}` },
-        cache: "no-store",
-      });
-      if (!response.ok) throw new Error(`Preset load failed: ${response.status}`);
-      const values = await response.json() as AirConditionerPresetRecord[];
-      if (!Array.isArray(values) || values.length !== 4) throw new Error("API returned an invalid preset list");
-      airPresets = values;
-      presetsLoaded = true;
-      const current = selectedPreset();
-      if (current) setPresetForm(current);
-      updateAirConditionerForm();
-    } catch (error) {
-      setText("air-conditioner-control-status", "プリセットを読み込めませんでした");
-      console.warn("Could not load IR presets", error);
-    }
-  }
-
-  async function saveAirConditionerPreset(): Promise<void> {
-    const token = config.lightControl?.token;
-    const preset = currentAirPreset();
-    if (!token || !preset || !airPresetName || savingPreset) return;
-    savingPreset = true;
-    updateAirConditionerForm();
-    setText("air-conditioner-control-status", `枠 ${selectedPresetId} の設定を保存中…`);
-    try {
-      const response = await fetch(`/api/air-conditioner-presets/${selectedPresetId}`, {
-        method: "PATCH",
-        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-        body: JSON.stringify({ ...preset, name: airPresetName.value.trim() || presetName(preset) }),
-      });
-      if (!response.ok) throw new Error(`Preset save failed: ${response.status}`);
-      const savedPreset = await response.json() as AirConditionerPresetRecord;
-      airPresets = airPresets.map((item) => item.preset_id === selectedPresetId ? savedPreset : item);
-      setPresetForm(savedPreset);
-      setText("air-conditioner-control-status", `枠 ${selectedPresetId} の設定を保存し、本体へ同期を依頼しました`);
-    } catch (error) {
-      setText("air-conditioner-control-status", "プリセットの保存に失敗しました");
-      console.warn("Could not save IR preset", error);
-    } finally {
-      savingPreset = false;
-      updateAirConditionerForm();
-    }
   }
 
   async function requestAirConditionerCommand(): Promise<void> {
     const token = config.lightControl?.token;
-    const preset = currentAirPreset();
-    const stored = selectedPreset();
-    if (!token || !preset || !stored || !stored.learned || isPresetDirty(stored) || airRequestInFlight) return;
+    const settings = currentAirSettings();
+    if (!token || !settings || airRequestInFlight || activeAirCommandId !== null) return;
     airRequestInFlight = true;
-    setText("air-conditioner-control-status", `枠 ${selectedPresetId} のIR送信指示を送信中…`);
+    setText("air-conditioner-control-status", "IR送信指示を送信中…");
     updateAirConditionerForm();
     try {
-      const command = {
-        operation: "send" as const,
-        preset_id: stored.preset_id,
-        revision: stored.revision,
-        preset,
-      };
       const response = await apiClient.control["air-conditioner"].$post(
-        { json: command },
+        { json: settings },
         { headers: { Authorization: `Bearer ${token}` } },
       );
       if (!response.ok) throw new Error(`IR control failed: ${response.status}`);
@@ -336,26 +183,14 @@ export async function start(config: LiveClientConfig): Promise<void> {
     }
   }
 
-  for (const button of presetSlotButtons) {
-    button.addEventListener("click", () => {
-      const presetId = Number(button.dataset.airPresetId);
-      const preset = airPresets.find((item) => item.preset_id === presetId);
-      if (!preset) return;
-      selectedPresetId = presetId;
-      setPresetForm(preset);
-    });
-  }
+  airPower?.addEventListener("change", updateAirConditionerForm);
   airMode?.addEventListener("change", updateAirConditionerForm);
-  airTemp?.addEventListener("input", () => updateAirConditionerForm());
+  airTemp?.addEventListener("input", updateAirConditionerForm);
   airFan?.addEventListener("change", updateAirConditionerForm);
   airSwingV?.addEventListener("change", updateAirConditionerForm);
-  airPresetName?.addEventListener("input", updateAirConditionerForm);
   airForm?.addEventListener("submit", (event) => event.preventDefault());
-  airSaveButton?.addEventListener("click", () => void saveAirConditionerPreset());
   airSendButton?.addEventListener("click", () => void requestAirConditionerCommand());
-  renderPresetSlots();
   updateAirConditionerForm();
-  if (config.lightControl?.token) void loadAirPresets();
 
   const lightToggle = document.querySelector<HTMLButtonElement>("#light-toggle");
   let lightOn: boolean | null = null;

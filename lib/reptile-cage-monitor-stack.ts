@@ -326,18 +326,6 @@ export class ReptileCageMonitorStack extends cdk.Stack {
       integration: new apigwv2Integrations.HttpLambdaIntegration("DashboardApiIntegration", apiFunction),
     });
     api.addRoutes({
-      path: "/api/air-conditioner-presets",
-      methods: [apigwv2.HttpMethod.GET],
-      integration: new apigwv2Integrations.HttpLambdaIntegration("AirConditionerPresetsGetIntegration", apiFunction),
-      authorizer,
-    });
-    api.addRoutes({
-      path: "/api/air-conditioner-presets/{presetId}",
-      methods: [apigwv2.HttpMethod.PATCH],
-      integration: new apigwv2Integrations.HttpLambdaIntegration("AirConditionerPresetsPatchIntegration", apiFunction),
-      authorizer,
-    });
-    api.addRoutes({
       path: "/control/light",
       methods: [apigwv2.HttpMethod.POST],
       integration: new apigwv2Integrations.HttpLambdaIntegration("LightControlIntegration", apiFunction),
@@ -506,37 +494,6 @@ export class ReptileCageMonitorStack extends cdk.Stack {
       rule.node.addDependency(ingestFunction);
     }
 
-    const airConditionerPresetFunction = new lambdaNodejs.NodejsFunction(this, "AirConditionerPresetCapture", {
-      entry: path.join(__dirname, "..", "lambda", "air-conditioner-presets.ts"),
-      handler: "handler",
-      runtime: LAMBDA_RUNTIME,
-      timeout: cdk.Duration.seconds(15),
-      environment: { TABLE_NAME: table.tableName },
-      bundling: { minify: true, sourceMap: true, target: "node24" },
-    });
-    table.grantReadWriteData(airConditionerPresetFunction);
-    const airPresetRuleName = "reptile_cage_monitor_air_presets_to_backend";
-    const airPresetRule = new iot.CfnTopicRule(this, "AirConditionerPresetRule", {
-      ruleName: airPresetRuleName,
-      topicRulePayload: {
-        sql: `SELECT * FROM '${AIR_CONDITIONER_STATE_TOPIC}' WHERE status = 'captured'`,
-        awsIotSqlVersion: "2016-03-23",
-        ruleDisabled: false,
-        actions: [{ lambda: { functionArn: airConditionerPresetFunction.functionArn } }],
-        errorAction: { s3: {
-          bucketName: failures.bucketName,
-          key: "air-presets/\${timestamp()}.json",
-          roleArn: failureRole.roleArn,
-        } },
-      },
-    });
-    airConditionerPresetFunction.addPermission("AirConditionerPresetRuleInvoke", {
-      principal: new iam.ServicePrincipal("iot.amazonaws.com"),
-      sourceAccount: this.account,
-      sourceArn: this.formatArn({ service: "iot", resource: "rule", resourceName: airPresetRuleName }),
-    });
-    airPresetRule.node.addDependency(airConditionerPresetFunction);
-
     const apiHost = cdk.Fn.select(2, cdk.Fn.split("/", api.apiEndpoint));
     const dashboardCertificate = props.dashboardCertificateArn
       ? acm.Certificate.fromCertificateArn(this, "DashboardCertificate", props.dashboardCertificateArn)
@@ -652,7 +609,6 @@ export class ReptileCageMonitorStack extends cdk.Stack {
     new cdk.CfnOutput(this, "SessionUrl", { value: `${api.apiEndpoint}/session` });
     new cdk.CfnOutput(this, "LightControlUrl", { value: `${api.apiEndpoint}/control/light` });
     new cdk.CfnOutput(this, "AirConditionerControlUrl", { value: `${api.apiEndpoint}/control/air-conditioner` });
-    new cdk.CfnOutput(this, "AirConditionerPresetsUrl", { value: `${api.apiEndpoint}/api/air-conditioner-presets` });
     new cdk.CfnOutput(this, "ReadingsTableName", { value: table.tableName });
     new cdk.CfnOutput(this, "LineTokenParameter", { value: lineTokenParameterName });
     new cdk.CfnOutput(this, "LineToParameter", { value: lineToParameterName });

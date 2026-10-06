@@ -1,7 +1,7 @@
 #include <Arduino.h>
 #include <ArduinoJson.h>
-#include <IRrecv.h>
 #include <IRsend.h>
+#include <ir_Daikin.h>
 #include <M5Unified.h>
 #include <Preferences.h>
 
@@ -16,263 +16,127 @@ constexpr char SHADOW_GET_REJECTED_TOPIC[] = "$aws/things/reptile-cage-monitor-i
 constexpr char SHADOW_DELTA_TOPIC[] = "$aws/things/reptile-cage-monitor-ir-controller/shadow/update/delta";
 constexpr char AIR_CONDITIONER_STATE_TOPIC[] = "reptile-cage-monitor/air-conditioner/state";
 constexpr uint8_t IR_SEND_PIN = 2;
-constexpr uint8_t IR_RECEIVE_PIN = 1;
-constexpr uint16_t MAX_RAW_ITEMS = 700;
-constexpr uint32_t MAX_RAW_SPACE_US = 131070;
-constexpr uint8_t IR_RECEIVE_TIMEOUT_MS = 120;
-constexpr uint8_t IR_SEND_DUTY_PERCENT = 50;
-constexpr uint8_t IR_SEND_ATTEMPTS = 1;
-constexpr uint16_t IR_REPEAT_GAP_MS = 100;
-constexpr uint8_t PRESET_COUNT = 4;
-constexpr uint32_t LEARN_TIMEOUT_MS = 60000;
-constexpr uint32_t LEARN_LONG_PRESS_MS = 1000;
-constexpr uint16_t IR_CARRIER_HZ = 36700;  // kDaikin312Freq
-// 受信モジュールはマークを短く・スペースを長く測るため、実測値(Daikin312仕様比 約60us)を送信時に戻す
-constexpr uint32_t IR_RECEIVER_SKEW_US = 60;
-constexpr const char* LEGACY_DESIRED_KEYS[] = {
-    "air_conditioner_requested_at", "air_conditioner_power", "air_conditioner_swing_h",
-    "air_conditioner_quiet", "air_conditioner_powerful", "air_conditioner_econo",
-    "air_conditioner_eye", "air_conditioner_eye_auto", "air_conditioner_eye_timer",
-    "air_conditioner_purify", "air_conditioner_mold", "air_conditioner_clean",
-    "air_conditioner_fresh_air", "air_conditioner_humidity", "air_conditioner_beep",
-    "air_conditioner_light",
+// 実機のリモコンから取得したDaikin312の状態(冷房27℃・風量静音・風向固定)。アプリで設定しない項目はこの値のまま送る
+constexpr uint8_t DEFAULT_STATE[kDaikin312StateLength] = {
+    0x11, 0xDA, 0x27, 0x00, 0x02, 0x00, 0x00, 0x00, 0x00, 0x0E, 0x00, 0x00, 0x11, 0x00, 0x50,
+    0x00, 0x00, 0x00, 0x00, 0x83, 0x11, 0xDA, 0x27, 0x00, 0x00, 0x39, 0x36, 0x00, 0xB0, 0x00,
+    0x00, 0x06, 0x60, 0x00, 0x00, 0xC3, 0x00, 0x00, 0x5A,
+};
+// このキー群はdesiredに残さない。旧版のプリセット用キーも、残っていればここで掃除する
+constexpr const char* DESIRED_KEYS[] = {
+    "air_conditioner_command_id", "air_conditioner_power", "air_conditioner_mode",
+    "air_conditioner_temp_c", "air_conditioner_fan", "air_conditioner_swing_v",
+    "air_conditioner_operation", "air_conditioner_raw_data", "air_conditioner_preset_id",
+    "air_conditioner_revision", "air_conditioner_name", "air_conditioner_requested_at",
+    "air_conditioner_swing_h", "air_conditioner_quiet",
+    "air_conditioner_powerful", "air_conditioner_econo", "air_conditioner_eye",
+    "air_conditioner_eye_auto", "air_conditioner_eye_timer", "air_conditioner_purify",
+    "air_conditioner_mold", "air_conditioner_clean", "air_conditioner_fresh_air",
+    "air_conditioner_humidity", "air_conditioner_beep", "air_conditioner_light",
 };
 
-struct AirConditionerPreset {
-    String mode;
+struct Option {
+    const char* name;
+    uint8_t value;
+};
+
+constexpr Option MODES[] = {{"cool", kDaikinCool}, {"heat", kDaikinHeat}};
+constexpr Option FANS[] = {
+    {"auto", kDaikinFanAuto}, {"quiet", kDaikinFanQuiet},
+    {"1", 1}, {"2", 2}, {"3", 3}, {"4", 4}, {"5", 5},
+};
+constexpr Option SWINGS_V[] = {
+    {"off", kDaikin312SwingVOff}, {"swing", kDaikin312SwingVSwing},
+    {"highest", kDaikin312SwingVHighest}, {"high", kDaikin312SwingVHigh},
+    {"upper_middle", kDaikin312SwingVUpperMiddle}, {"lower_middle", kDaikin312SwingVLowerMiddle},
+    {"low", kDaikin312SwingVLow}, {"lowest", kDaikin312SwingVLowest},
+    {"breeze", kDaikin312SwingVBreeze}, {"circulate", kDaikin312SwingVCirculate},
+};
+
+struct AirConditionerSettings {
+    bool power;
+    const Option* mode;
     float tempC;
-    String fan;
-    String swingV;
+    const Option* fan;
+    const Option* swingV;
 };
 
-struct PresetSlot {
-    String name;
-    AirConditionerPreset settings;
-    uint32_t revision = 0;
-    uint32_t rawData[MAX_RAW_ITEMS]{};
-    uint16_t rawLength = 0;
-    bool cloudSavePending = false;
-};
-
-IRsend irsend(IR_SEND_PIN);
-// kRawBuf(100)ではDaikinの全フレーム(数百要素)が切り捨てられるため、保存上限+先頭1要素を確保する
-IRrecv irrecv(IR_RECEIVE_PIN, MAX_RAW_ITEMS + kStartOffset, IR_RECEIVE_TIMEOUT_MS);
+IRDaikin312 ac(IR_SEND_PIN);
 MqttLink mqtt(CLIENT_ID);
 Preferences storage;
 bool storageReady = false;
 bool previousMqttConnected = false;
-bool learningActive = false;
-uint32_t learningDeadline = 0;
-uint8_t selectedPresetId = 1;
-uint8_t learningPresetId = 1;
-bool longPressHandled = false;
-uint32_t nextCloudRetryMs = 0;
-PresetSlot presets[PRESET_COUNT];
-AirConditionerPreset learningPreset;
-String learningName;
-uint32_t learningRevision = 0;
-String learningCommandId;
 String lastCommandId;
 String lastCommandStatus;
 String currentMessage = "Ready";
+String lastSettingsText;
 
-bool readPreset(JsonObjectConst source, AirConditionerPreset* result) {
-    const char* mode = source["air_conditioner_mode"] | "";
-    const char* fan = source["air_conditioner_fan"] | "";
-    const char* swingV = source["air_conditioner_swing_v"] | "";
+template <size_t N>
+const Option* findOption(const Option (&options)[N], const char* name) {
+    for (const Option& option : options) {
+        if (strcmp(option.name, name) == 0) return &option;
+    }
+    return nullptr;
+}
+
+bool readSettings(JsonObjectConst source, AirConditionerSettings* result) {
+    JsonVariantConst power = source["air_conditioner_power"];
+    const Option* mode = findOption(MODES, source["air_conditioner_mode"] | "");
+    const Option* fan = findOption(FANS, source["air_conditioner_fan"] | "");
+    const Option* swingV = findOption(SWINGS_V, source["air_conditioner_swing_v"] | "");
     JsonVariantConst temperature = source["air_conditioner_temp_c"];
-    if ((strcmp(mode, "cool") != 0 && strcmp(mode, "heat") != 0)
-        || (strcmp(fan, "auto") != 0 && strcmp(fan, "quiet") != 0
-            && !(strlen(fan) == 1 && fan[0] >= '1' && fan[0] <= '5'))
-        || (strcmp(swingV, "off") != 0 && strcmp(swingV, "swing") != 0
-            && strcmp(swingV, "highest") != 0 && strcmp(swingV, "high") != 0
-            && strcmp(swingV, "upper_middle") != 0 && strcmp(swingV, "lower_middle") != 0
-            && strcmp(swingV, "low") != 0 && strcmp(swingV, "lowest") != 0
-            && strcmp(swingV, "breeze") != 0 && strcmp(swingV, "circulate") != 0)
+    if (!power.is<bool>() || !mode || !fan || !swingV
         || (!temperature.is<float>() && !temperature.is<int>())) return false;
 
     const float tempC = temperature.as<float>();
-    if (!isfinite(tempC) || tempC < 10.0f || tempC > 32.0f
-        || fabsf(tempC * 2.0f - roundf(tempC * 2.0f)) > 0.001f
-        || (strcmp(mode, "cool") == 0 && tempC < 18.0f)) return false;
+    if (!isfinite(tempC)) return false;
 
-    result->mode = mode;
-    result->tempC = tempC;
-    result->fan = fan;
-    result->swingV = swingV;
+    *result = {power.as<bool>(), mode, tempC, fan, swingV};
     return true;
 }
 
-void putPreset(JsonObject target, const AirConditionerPreset& preset) {
-    target["mode"] = preset.mode;
-    target["temp_c"] = preset.tempC;
-    target["fan"] = preset.fan;
-    target["swing_v"] = preset.swingV;
+void putSettings(JsonObject target, const AirConditionerSettings& settings) {
+    target["air_conditioner_power"] = settings.power;
+    target["air_conditioner_mode"] = settings.mode->name;
+    target["air_conditioner_temp_c"] = settings.tempC;
+    target["air_conditioner_fan"] = settings.fan->name;
+    target["air_conditioner_swing_v"] = settings.swingV->name;
 }
 
-uint8_t presetIndex(uint8_t presetId) {
-    return static_cast<uint8_t>(presetId - 1);
+// 範囲外や0.5℃刻みでない温度はsetTempが丸めるため、読み戻した値が違えば不正な指示として扱う
+bool applySettings(const AirConditionerSettings& settings) {
+    ac.setRaw(DEFAULT_STATE);
+    ac.setPower(settings.power);
+    ac.setMode(settings.mode->value);  // 冷房は下限温度が違うため、温度より先に設定する
+    ac.setTemp(settings.tempC);
+    ac.setFan(settings.fan->value);
+    ac.setSwingVertical(settings.swingV->value);
+    return ac.getTemp() == settings.tempC;
 }
 
-String presetKey(const char* prefix, uint8_t presetId) {
-    return String(prefix) + String(presetId);
-}
-
-bool validPresetSettings(const AirConditionerPreset& preset) {
-    const char* mode = preset.mode.c_str();
-    const char* fan = preset.fan.c_str();
-    const char* swingV = preset.swingV.c_str();
-    const float temperature = preset.tempC;
-    return (strcmp(mode, "cool") == 0 || strcmp(mode, "heat") == 0)
-        && (strcmp(fan, "auto") == 0 || strcmp(fan, "quiet") == 0
-            || (strlen(fan) == 1 && fan[0] >= '1' && fan[0] <= '5'))
-        && (strcmp(swingV, "off") == 0 || strcmp(swingV, "swing") == 0
-            || strcmp(swingV, "highest") == 0 || strcmp(swingV, "high") == 0
-            || strcmp(swingV, "upper_middle") == 0 || strcmp(swingV, "lower_middle") == 0
-            || strcmp(swingV, "low") == 0 || strcmp(swingV, "lowest") == 0
-            || strcmp(swingV, "breeze") == 0 || strcmp(swingV, "circulate") == 0)
-        && isfinite(temperature) && temperature >= 10.0f && temperature <= 32.0f
-        && fabsf(temperature * 2.0f - roundf(temperature * 2.0f)) <= 0.001f
-        && (strcmp(mode, "heat") == 0 || temperature >= 18.0f);
-}
-
-bool savePresetSettings(uint8_t presetId, const AirConditionerPreset& preset,
-                        const String& name, uint32_t revision) {
-    if (presetId < 1 || presetId > PRESET_COUNT || !validPresetSettings(preset)) return false;
-    PresetSlot& slot = presets[presetIndex(presetId)];
-    slot.settings = preset;
-    slot.name = name.length() ? name.substring(0, 48) : String("Preset ") + String(presetId);
-    slot.revision = revision;
-    if (!storageReady) return false;
-    bool stored = true;
-    stored &= storage.putString(presetKey("mode", presetId).c_str(), preset.mode) > 0;
-    stored &= storage.putFloat(presetKey("temp", presetId).c_str(), preset.tempC) > 0;
-    stored &= storage.putString(presetKey("fan", presetId).c_str(), preset.fan) > 0;
-    stored &= storage.putString(presetKey("swing", presetId).c_str(), preset.swingV) > 0;
-    stored &= storage.putString(presetKey("name", presetId).c_str(), slot.name) > 0;
-    stored &= storage.putUInt(presetKey("rev", presetId).c_str(), revision) > 0;
-    return stored;
-}
-
-bool validRawData(const uint32_t* rawData, uint16_t rawLength) {
-    if (!rawData || rawLength < 2 || rawLength > MAX_RAW_ITEMS) return false;
-    for (uint16_t index = 0; index < rawLength; ++index) {
-        const uint32_t maxValue = index % 2 == 0 ? UINT16_MAX : MAX_RAW_SPACE_US;
-        if (rawData[index] == 0 || rawData[index] > maxValue) return false;
-    }
-    return true;
-}
-
-bool savePresetRaw(uint8_t presetId, const uint32_t* rawData, uint16_t rawLength) {
-    if (!storageReady || presetId < 1 || presetId > PRESET_COUNT
-        || !validRawData(rawData, rawLength)) return false;
-    const String rawKey = presetKey("raw", presetId);
-    const String lengthKey = presetKey("len", presetId);
-    const String pendingKey = presetKey("cloud", presetId);
-    const size_t bytes = static_cast<size_t>(rawLength) * sizeof(uint32_t);
-    PresetSlot& slot = presets[presetIndex(presetId)];
-    slot.cloudSavePending = true;
-    storage.putBool(pendingKey.c_str(), true);
-    if (storage.putBytes(rawKey.c_str(), rawData, bytes) != bytes
-        || storage.putUShort(lengthKey.c_str(), rawLength) != sizeof(uint16_t)) return false;
-    memcpy(slot.rawData, rawData, bytes);
-    slot.rawLength = rawLength;
-    slot.cloudSavePending = true;
-    return true;
-}
-
-void loadPresets() {
-    for (uint8_t presetId = 1; presetId <= PRESET_COUNT; ++presetId) {
-        PresetSlot& slot = presets[presetIndex(presetId)];
-        slot.name = String("Preset ") + String(presetId);
-        slot.settings.mode = "cool";
-        slot.settings.tempC = 27.0f;
-        slot.settings.fan = "auto";
-        slot.settings.swingV = "off";
-        if (!storageReady) continue;
-
-        AirConditionerPreset stored;
-        stored.mode = storage.getString(presetKey("mode", presetId).c_str(), "cool");
-        stored.tempC = storage.getFloat(presetKey("temp", presetId).c_str(), 27.0f);
-        stored.fan = storage.getString(presetKey("fan", presetId).c_str(), "auto");
-        stored.swingV = storage.getString(presetKey("swing", presetId).c_str(), "off");
-        if (validPresetSettings(stored)) slot.settings = stored;
-        slot.name = storage.getString(presetKey("name", presetId).c_str(), slot.name);
-        slot.revision = storage.getUInt(presetKey("rev", presetId).c_str(), 0);
-        slot.cloudSavePending = storage.getBool(presetKey("cloud", presetId).c_str(), false);
-        const uint16_t length = storage.getUShort(presetKey("len", presetId).c_str(), 0);
-        if (length >= 2 && length <= MAX_RAW_ITEMS) {
-            const String rawKey = presetKey("raw", presetId);
-            const size_t currentBytes = static_cast<size_t>(length) * sizeof(uint32_t);
-            const size_t legacyBytes = static_cast<size_t>(length) * sizeof(uint16_t);
-            if (storage.getBytesLength(rawKey.c_str()) == currentBytes
-                && storage.getBytes(rawKey.c_str(), slot.rawData, currentBytes) == currentBytes
-                && validRawData(slot.rawData, length)) {
-                slot.rawLength = length;
-            } else if (storage.getBytesLength(rawKey.c_str()) == legacyBytes) {
-                uint16_t legacyRaw[MAX_RAW_ITEMS];
-                if (storage.getBytes(rawKey.c_str(), legacyRaw, legacyBytes) == legacyBytes) {
-                    for (uint16_t index = 0; index < length; ++index) slot.rawData[index] = legacyRaw[index];
-                    if (validRawData(slot.rawData, length)
-                        && storage.putBytes(rawKey.c_str(), slot.rawData, currentBytes) == currentBytes) {
-                        slot.rawLength = length;
-                    }
-                }
-            }
-        }
-    }
-    selectedPresetId = storageReady ? storage.getUChar("selected", 1) : 1;
-    if (selectedPresetId < 1 || selectedPresetId > PRESET_COUNT) selectedPresetId = 1;
-}
-
-void clearLegacyDesired(JsonObject desired) {
-    desired["air_conditioner_command_id"] = nullptr;
-    desired["air_conditioner_operation"] = nullptr;
-    desired["air_conditioner_raw_data"] = nullptr;  // 旧版が残したdesiredの掃除用
-    desired["air_conditioner_mode"] = nullptr;
-    desired["air_conditioner_temp_c"] = nullptr;
-    desired["air_conditioner_fan"] = nullptr;
-    desired["air_conditioner_swing_v"] = nullptr;
-    desired["air_conditioner_preset_id"] = nullptr;
-    desired["air_conditioner_revision"] = nullptr;
-    desired["air_conditioner_name"] = nullptr;
-    for (const char* key : LEGACY_DESIRED_KEYS) desired[key] = nullptr;
-}
-
-bool publishAirEvent(uint8_t presetId, const char* commandId, const char* status,
-                     const AirConditionerPreset& preset, const String& name, uint32_t revision) {
+bool publishAirEvent(const char* commandId, const char* status) {
     JsonDocument event;
     event["command_id"] = commandId;
-    event["preset_id"] = presetId;
-    event["name"] = name;
-    event["revision"] = revision;
     event["status"] = status;
     event["reported_at"] = static_cast<uint64_t>(time(nullptr));
-    putPreset(event["preset"].to<JsonObject>(), preset);
     String payload;
-    payload.reserve(measureJson(event) + 1);
     serializeJson(event, payload);
     return mqtt.publish(AIR_CONDITIONER_STATE_TOPIC, payload.c_str());
 }
 
-void markCapturePublished(uint8_t presetId) {
-    if (presetId < 1 || presetId > PRESET_COUNT) return;
-    PresetSlot& slot = presets[presetIndex(presetId)];
-    slot.cloudSavePending = false;
-    if (storageReady) storage.putBool(presetKey("cloud", presetId).c_str(), false);
-}
-
-void retryPendingCaptureEvents() {
-    if (!storageReady || !mqtt.connected()) return;
-    for (uint8_t presetId = 1; presetId <= PRESET_COUNT; ++presetId) {
-        const PresetSlot& slot = presets[presetIndex(presetId)];
-        if (!slot.cloudSavePending || slot.rawLength < 2) continue;
-        const String commandId = String("capture-sync-") + String(presetId) + "-" + String(millis());
-        if (publishAirEvent(presetId, commandId.c_str(), "captured", slot.settings, slot.name,
-                            slot.revision)) {
-            markCapturePublished(presetId);
-        }
-    }
+void publishShadowResult(const char* commandId, const char* status, const AirConditionerSettings* settings) {
+    JsonDocument shadow;
+    JsonObject state = shadow["state"].to<JsonObject>();
+    JsonObject reported = state["reported"].to<JsonObject>();
+    reported["air_conditioner_command_id"] = commandId;
+    reported["air_conditioner_status"] = status;
+    reported["air_conditioner_reported_at"] = static_cast<uint64_t>(time(nullptr));
+    if (settings) putSettings(reported, *settings);
+    JsonObject desired = state["desired"].to<JsonObject>();
+    for (const char* key : DESIRED_KEYS) desired[key] = nullptr;
+    String payload;
+    serializeJson(shadow, payload);
+    mqtt.publish(SHADOW_UPDATE_TOPIC, payload.c_str());
 }
 
 void rememberCommand(const char* commandId, const char* status) {
@@ -284,229 +148,41 @@ void rememberCommand(const char* commandId, const char* status) {
     }
 }
 
-void publishShadowResult(const char* commandId, const char* operation, const char* status,
-                         uint8_t presetId, const AirConditionerPreset& preset,
-                         const String& name, uint32_t revision) {
-    JsonDocument shadow;
-    JsonObject state = shadow["state"].to<JsonObject>();
-    JsonObject reported = state["reported"].to<JsonObject>();
-    reported["air_conditioner_command_id"] = commandId;
-    reported["air_conditioner_operation"] = operation;
-    reported["air_conditioner_mode"] = preset.mode;
-    reported["air_conditioner_temp_c"] = preset.tempC;
-    reported["air_conditioner_fan"] = preset.fan;
-    reported["air_conditioner_swing_v"] = preset.swingV;
-    reported["air_conditioner_preset_id"] = presetId;
-    reported["air_conditioner_revision"] = revision;
-    reported["air_conditioner_name"] = name;
-    reported["air_conditioner_status"] = status;
-    reported["air_conditioner_reported_at"] = static_cast<uint64_t>(time(nullptr));
-    JsonObject desired = state["desired"].to<JsonObject>();
-    clearLegacyDesired(desired);
-
-    String payload;
-    payload.reserve(measureJson(shadow) + 1);
-    serializeJson(shadow, payload);
-    mqtt.publish(SHADOW_UPDATE_TOPIC, payload.c_str());
-}
-
-void clearUnrecognizedCommand(const char* commandId, const char* status) {
-    JsonDocument shadow;
-    JsonObject state = shadow["state"].to<JsonObject>();
-    JsonObject reported = state["reported"].to<JsonObject>();
-    reported["air_conditioner_command_id"] = commandId;
-    reported["air_conditioner_status"] = status;
-    reported["air_conditioner_reported_at"] = static_cast<uint64_t>(time(nullptr));
-    JsonObject desired = state["desired"].to<JsonObject>();
-    clearLegacyDesired(desired);
-    String payload;
-    payload.reserve(measureJson(shadow) + 1);
-    serializeJson(shadow, payload);
-    mqtt.publish(SHADOW_UPDATE_TOPIC, payload.c_str());
-}
-
-void finishLearning(const uint32_t* rawData, uint16_t rawLength) {
-    const String commandId = learningCommandId;
-    const AirConditionerPreset preset = learningPreset;
-    const String name = learningName;
-    const uint32_t revision = learningRevision;
-    const uint8_t presetId = learningPresetId;
-    learningActive = false;
-    learningCommandId = "";
-
-    if (rawLength < 2 || rawLength > MAX_RAW_ITEMS || !validRawData(rawData, rawLength)) {
-        currentMessage = rawLength > MAX_RAW_ITEMS ? "IR signal too long" : "Invalid IR signal";
-        publishAirEvent(presetId, commandId.c_str(), "failed", preset, name, revision);
-        rememberCommand(commandId.c_str(), "failed");
-        publishShadowResult(commandId.c_str(), "learn", "failed", presetId, preset, name, revision);
-        return;
-    }
-
-    if (!savePresetRaw(presetId, rawData, rawLength)) {
-        currentMessage = "NVS save failed";
-        publishAirEvent(presetId, commandId.c_str(), "failed", preset, name, revision);
-        rememberCommand(commandId.c_str(), "failed");
-        publishShadowResult(commandId.c_str(), "learn", "failed", presetId, preset, name, revision);
-        return;
-    }
-
-    currentMessage = String("Preset ") + String(presetId) + " learned";
-    if (publishAirEvent(presetId, commandId.c_str(), "captured", preset, name, revision)) {
-        markCapturePublished(presetId);
-    }
-    rememberCommand(commandId.c_str(), "captured");
-    publishShadowResult(commandId.c_str(), "learn", "captured", presetId, preset, name, revision);
-    Serial.printf("[IR] learned %u raw timings for %s\n", rawLength, commandId.c_str());
-}
-
-void startLearning(uint8_t presetId, const String& commandId,
-                   const AirConditionerPreset& preset, const String& name, uint32_t revision) {
-    if (presetId < 1 || presetId > PRESET_COUNT || !validPresetSettings(preset)) return;
-    if (!savePresetSettings(presetId, preset, name, revision)) {
-        currentMessage = "NVS settings save failed";
-        return;
-    }
-    learningPresetId = presetId;
-    learningPreset = preset;
-    learningName = name;
-    learningRevision = revision;
-    learningCommandId = commandId;
-    learningDeadline = millis() + LEARN_TIMEOUT_MS;
-    learningActive = true;
-    currentMessage = String("Learning preset ") + String(presetId);
-    publishAirEvent(presetId, commandId.c_str(), "learning", preset, name, revision);
-    Serial.printf("[IR] learning started for preset %u (%s)\n", presetId, commandId.c_str());
-}
-
-bool syncPresetSettings(JsonObjectConst desired, uint8_t* syncedPresetId) {
-    JsonVariantConst idValue = desired["air_conditioner_preset_id"];
-    if (idValue.isNull()) return false;
-    if (!idValue.is<int>() && !idValue.is<unsigned int>()) return false;
-    const int rawId = idValue.as<int>();
-    if (rawId < 1 || rawId > PRESET_COUNT) return false;
-
-    const uint8_t presetId = static_cast<uint8_t>(rawId);
-    AirConditionerPreset preset;
-    if (!readPreset(desired, &preset)) return false;
-    JsonVariantConst revisionValue = desired["air_conditioner_revision"];
-    const uint32_t revision = revisionValue.is<uint32_t>() ? revisionValue.as<uint32_t>() : 0;
-    PresetSlot& slot = presets[presetIndex(presetId)];
-    if (revision >= slot.revision) {
-        const char* requestedName = desired["air_conditioner_name"] | slot.name.c_str();
-        if (!savePresetSettings(presetId, preset, String(requestedName), revision)) {
-            currentMessage = "NVS settings save failed";
-        }
-    }
-    *syncedPresetId = presetId;
-    return true;
-}
-
-void publishPresetSyncResult(uint8_t presetId) {
-    if (presetId < 1 || presetId > PRESET_COUNT) return;
-    const PresetSlot& slot = presets[presetIndex(presetId)];
-    JsonDocument shadow;
-    JsonObject state = shadow["state"].to<JsonObject>();
-    JsonObject reported = state["reported"].to<JsonObject>();
-    reported["air_conditioner_preset_id"] = presetId;
-    reported["air_conditioner_revision"] = slot.revision;
-    reported["air_conditioner_name"] = slot.name;
-    reported["air_conditioner_mode"] = slot.settings.mode;
-    reported["air_conditioner_temp_c"] = slot.settings.tempC;
-    reported["air_conditioner_fan"] = slot.settings.fan;
-    reported["air_conditioner_swing_v"] = slot.settings.swingV;
-    JsonObject desired = state["desired"].to<JsonObject>();
-    clearLegacyDesired(desired);
-    String payload;
-    payload.reserve(measureJson(shadow) + 1);
-    serializeJson(shadow, payload);
-    mqtt.publish(SHADOW_UPDATE_TOPIC, payload.c_str());
-}
-
-void sendPresetRaw(const PresetSlot& slot) {
-    for (uint8_t attempt = 0; attempt < IR_SEND_ATTEMPTS; ++attempt) {
-        irsend.enableIROut(IR_CARRIER_HZ, IR_SEND_DUTY_PERCENT);
-        for (uint16_t index = 0; index < slot.rawLength; ++index) {
-            const uint32_t duration = slot.rawData[index];
-            if (index % 2 == 0) irsend.mark(static_cast<uint16_t>(min<uint32_t>(duration + IR_RECEIVER_SKEW_US, UINT16_MAX)));
-            else irsend.space(duration > IR_RECEIVER_SKEW_US ? duration - IR_RECEIVER_SKEW_US : 1);
-        }
-        if (attempt + 1 < IR_SEND_ATTEMPTS) delay(IR_REPEAT_GAP_MS);
-    }
+void finishCommand(const char* commandId, const char* status, const AirConditionerSettings* settings) {
+    rememberCommand(commandId, status);
+    publishAirEvent(commandId, status);
+    publishShadowResult(commandId, status, settings);
 }
 
 void handleCommand(JsonObjectConst desired) {
-    uint8_t syncedPresetId = 0;
-    const bool syncedSettings = syncPresetSettings(desired, &syncedPresetId);
     const char* commandId = desired["air_conditioner_command_id"] | "";
-    const char* operation = desired["air_conditioner_operation"] | "";
     if (!commandId[0]) {
-        if (syncedSettings) publishPresetSyncResult(syncedPresetId);
+        // 旧版のキーだけが残っているとdeltaが解消されないので掃除する
+        if (desired.size() > 0) publishShadowResult("", "ignored", nullptr);
         return;
     }
 
-    if (strcmp(operation, "learn") != 0 && strcmp(operation, "send") != 0) {
-        rememberCommand(commandId, "ignored");
-        clearUnrecognizedCommand(commandId, "ignored");
-        Serial.printf("[IR] ignored unrecognized command %s\n", commandId);
+    AirConditionerSettings settings;
+    if (!readSettings(desired, &settings) || !applySettings(settings)) {
+        currentMessage = "Invalid settings";
+        Serial.printf("[IR] invalid settings for command %s\n", commandId);
+        finishCommand(commandId, "failed", nullptr);
         return;
     }
 
-    JsonVariantConst idValue = desired["air_conditioner_preset_id"];
-    const int rawId = idValue.is<int>() || idValue.is<unsigned int>() ? idValue.as<int>() : 0;
-    if (rawId < 1 || rawId > PRESET_COUNT) {
-        currentMessage = "Invalid preset ID";
-        rememberCommand(commandId, "failed");
-        clearUnrecognizedCommand(commandId, "failed");
-        return;
-    }
-    const uint8_t presetId = static_cast<uint8_t>(rawId);
-    AirConditionerPreset preset;
-    if (!readPreset(desired, &preset)) {
-        currentMessage = "Invalid preset";
-        rememberCommand(commandId, "failed");
-        clearUnrecognizedCommand(commandId, "failed");
-        Serial.printf("[IR] invalid preset for command %s\n", commandId);
-        return;
-    }
-    PresetSlot& slot = presets[presetIndex(presetId)];
-    const char* requestedName = desired["air_conditioner_name"] | slot.name.c_str();
-    const JsonVariantConst revisionValue = desired["air_conditioner_revision"];
-    const uint32_t revision = revisionValue.is<uint32_t>() ? revisionValue.as<uint32_t>() : slot.revision;
-    if (revision >= slot.revision) savePresetSettings(presetId, preset, String(requestedName), revision);
-    if (learningActive && learningCommandId == commandId) return;
-
-    const String previousCommandId = storageReady
-        ? storage.getString("last_cmd", lastCommandId)
-        : lastCommandId;
-    if (previousCommandId == commandId) {
-        const String previousStatus = storageReady
-            ? storage.getString("last_status", lastCommandStatus.length() ? lastCommandStatus : "failed")
-            : (lastCommandStatus.length() ? lastCommandStatus : "failed");
-        publishAirEvent(presetId, commandId, previousStatus.c_str(), preset, slot.name, slot.revision);
-        publishShadowResult(commandId, operation, previousStatus.c_str(), presetId, preset, slot.name, slot.revision);
+    // 再接続でShadowを取得し直しても同じ指示を二重に送信しない
+    if (lastCommandId == commandId) {
+        publishAirEvent(commandId, lastCommandStatus.c_str());
+        publishShadowResult(commandId, lastCommandStatus.c_str(), &settings);
         return;
     }
 
-    if (strcmp(operation, "learn") == 0) {
-        startLearning(presetId, String(commandId), preset, slot.name, slot.revision);
-        return;
-    }
-
-    const bool valid = strcmp(operation, "send") == 0 && slot.rawLength >= 2;
-    const char* status = "failed";
-    if (valid) {
-        sendPresetRaw(slot);
-        status = "sent";
-        currentMessage = "Raw IR sent";
-        Serial.printf("[IR] sent %u raw timings for %s\n", slot.rawLength, commandId);
-    } else {
-        currentMessage = "Preset not learned";
-        Serial.printf("[IR] invalid command %s\n", commandId);
-    }
-
-    rememberCommand(commandId, status);
-    publishAirEvent(presetId, commandId, status, preset, slot.name, slot.revision);
-    publishShadowResult(commandId, operation, status, presetId, preset, slot.name, slot.revision);
+    ac.send();
+    lastSettingsText = String(settings.power ? "on " : "off ") + settings.mode->name + " " + String(settings.tempC, 1) + "C fan " + settings.fan->name
+        + " V " + settings.swingV->name;
+    currentMessage = "IR sent";
+    Serial.printf("[IR] sent %s for %s\n", lastSettingsText.c_str(), commandId);
+    finishCommand(commandId, "sent", &settings);
 }
 
 void onMqttMessage(char* topic, uint8_t* payload, unsigned int length) {
@@ -525,8 +201,7 @@ void onMqttMessage(char* topic, uint8_t* payload, unsigned int length) {
         Serial.println("[Shadow] invalid JSON");
         return;
     }
-    JsonObjectConst desired = document["state"]["desired"].as<JsonObjectConst>();
-    handleCommand(desired);
+    handleCommand(document["state"]["desired"].as<JsonObjectConst>());
 }
 
 void onConnection() {
@@ -534,71 +209,7 @@ void onConnection() {
     mqtt.subscribe(SHADOW_GET_REJECTED_TOPIC);
     mqtt.subscribe(SHADOW_DELTA_TOPIC);
     mqtt.publish(SHADOW_GET_TOPIC, "{}");
-    retryPendingCaptureEvents();
     Serial.println("[Shadow] requested current state");
-}
-
-void pollInfrared() {
-    if (learningActive) {
-        if (static_cast<int32_t>(millis() - learningDeadline) >= 0) {
-            const String commandId = learningCommandId;
-            const AirConditionerPreset preset = learningPreset;
-            const String name = learningName;
-            const uint32_t revision = learningRevision;
-            const uint8_t presetId = learningPresetId;
-            learningActive = false;
-            learningCommandId = "";
-            currentMessage = "IR learn timed out";
-            publishAirEvent(presetId, commandId.c_str(), "failed", preset, name, revision);
-            rememberCommand(commandId.c_str(), "failed");
-            publishShadowResult(commandId.c_str(), "learn", "failed", presetId, preset, name, revision);
-            Serial.printf("[IR] learn timed out for %s\n", commandId.c_str());
-        } else {
-            decode_results results{};
-            if (irrecv.decode(&results)) {
-                const uint16_t rawLength = results.rawlen > kStartOffset
-                    ? results.rawlen - kStartOffset
-                    : 0;
-                if (!results.overflow && rawLength >= 2 && rawLength <= MAX_RAW_ITEMS) {
-                    uint32_t rawData[MAX_RAW_ITEMS];
-                    for (uint16_t index = 0; index < rawLength; ++index) {
-                        const uint32_t micros = static_cast<uint32_t>(results.rawbuf[index + kStartOffset]) * kRawTick;
-                        rawData[index] = max<uint32_t>(micros, 1);
-                    }
-                    finishLearning(rawData, rawLength);
-                } else {
-                    Serial.printf("[IR] ignored capture with %u timings (overflow=%d)\n", rawLength, results.overflow);
-                    finishLearning(nullptr, results.overflow ? MAX_RAW_ITEMS + 1 : rawLength);
-                }
-                irrecv.resume();
-            }
-        }
-    } else {
-        decode_results results{};
-        if (irrecv.decode(&results)) irrecv.resume();
-    }
-}
-
-void drawScreen();
-
-void pollButton() {
-    if (M5.BtnA.pressedFor(LEARN_LONG_PRESS_MS) && !longPressHandled) {
-        longPressHandled = true;
-        if (!learningActive) {
-            const PresetSlot& slot = presets[presetIndex(selectedPresetId)];
-            const String commandId = String("button-") + String(selectedPresetId) + "-" + String(millis());
-            startLearning(selectedPresetId, commandId, slot.settings, slot.name, slot.revision);
-        }
-    }
-    if (M5.BtnA.wasReleased()) {
-        if (!longPressHandled) {
-            selectedPresetId = selectedPresetId >= PRESET_COUNT ? 1 : selectedPresetId + 1;
-            if (storageReady) storage.putUChar("selected", selectedPresetId);
-            currentMessage = String("Selected preset ") + String(selectedPresetId);
-            drawScreen();
-        }
-        longPressHandled = false;
-    }
 }
 
 void drawScreen() {
@@ -606,19 +217,10 @@ void drawScreen() {
     M5.Display.setCursor(4, 4);
     M5.Display.setTextSize(1);
     M5.Display.setTextColor(TFT_WHITE, TFT_BLACK);
-    M5.Display.println("IR RAW PRESETS");
+    M5.Display.println("IR AIR CONDITIONER");
     M5.Display.printf("MQTT: %s\n", mqtt.connected() ? "online" : "offline");
-    const PresetSlot& selected = presets[presetIndex(selectedPresetId)];
-    M5.Display.printf("Slot %u/4: %s\n", selectedPresetId, selected.name.c_str());
-    M5.Display.printf("IR: %s\n", selected.rawLength ? "learned" : "not learned");
     M5.Display.println(currentMessage);
-    if (learningActive) {
-        M5.Display.printf("Learning slot %u\n", learningPresetId);
-        M5.Display.printf("%s %.1f C\n", learningPreset.mode.c_str(), learningPreset.tempC);
-        M5.Display.printf("Fan %s V %s\n", learningPreset.fan.c_str(), learningPreset.swingV.c_str());
-    }
-    M5.Display.println("Click: next slot");
-    M5.Display.println("Hold 1s: learn (60s)");
+    if (lastSettingsText.length()) M5.Display.println(lastSettingsText);
 }
 }  // namespace
 
@@ -636,37 +238,24 @@ void setup() {
     } else {
         Serial.println("[NVS] failed to open preferences");
     }
-    loadPresets();
 
-    irsend.begin();
-    irrecv.enableIRIn();
+    ac.begin();
     mqtt.setCallback(onMqttMessage);
     mqtt.begin();
     drawScreen();
-    Serial.println("[IR] raw controller ready: RX GPIO1, TX GPIO2");
+    Serial.println("[IR] Daikin312 controller ready: TX GPIO2");
 }
 
 void loop() {
     M5.update();
     mqtt.loop();
     if (mqtt.consumeJustConnected()) onConnection();
-    pollButton();
-    pollInfrared();
-    if (static_cast<int32_t>(millis() - nextCloudRetryMs) >= 0) {
-        nextCloudRetryMs = millis() + 10000;
-        retryPendingCaptureEvents();
-    }
 
     const bool mqttConnected = mqtt.connected();
-    if (mqttConnected != previousMqttConnected) {
-        previousMqttConnected = mqttConnected;
-        drawScreen();
-    }
     static String previousScreenMessage;
-    static uint8_t previousScreenPresetId = 0;
-    if (previousScreenMessage != currentMessage || previousScreenPresetId != selectedPresetId) {
+    if (mqttConnected != previousMqttConnected || previousScreenMessage != currentMessage) {
+        previousMqttConnected = mqttConnected;
         previousScreenMessage = currentMessage;
-        previousScreenPresetId = selectedPresetId;
         drawScreen();
     }
     delay(5);

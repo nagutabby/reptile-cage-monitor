@@ -12,9 +12,9 @@
 ## 構成
 
 - CloudFrontはOAC経由で非公開S3のAstroサイトを配信し、`/api/*`、`/control/*`、`/session`をHTTP APIへ転送します。
-- Hono API Lambdaは履歴・現在状態・公開Cognito設定を返します。ライト操作、エアコンIRプリセットの取得・更新・送信はAPI GatewayのCognito JWT authorizerで保護されます。
-- IoT Coreのテレメトリ、機器状態、Device Shadow、学習済みIRイベントのルールはLambdaを呼びます。学習イベントはID 1〜4の同じDynamoDB行へ上書きします。ヒーターは1分ごと、ライトはJST 7時と19時に動作します。
-- DynamoDBはオンデマンド課金で、履歴、機器状態、Shadow、通知状態、最大4件のIRプリセットを保存します。履歴にTTLは設定しません。
+- Hono API Lambdaは履歴・現在状態・公開Cognito設定を返します。ライト操作とエアコン操作はAPI GatewayのCognito JWT authorizerで保護されます。
+- IoT Coreのテレメトリ、機器状態、Device ShadowのルールはLambdaを呼びます。ヒーターは1分ごと、ライトはJST 7時と19時に動作します。
+- DynamoDBはオンデマンド課金で、履歴、機器状態、Shadow、通知状態を保存します。履歴にTTLは設定しません。
 - LINE Messaging APIのチャネルアクセストークンと送信先IDはParameter Store Standard SecureStringから読みます。
 - CloudFrontのURLをCognito公開クライアントのOAuthコールバックに使い、ブラウザーではAuthorization Code + PKCEを使います。閲覧者はIdentity Poolのゲスト権限でMQTTライブ値を購読できます。
 
@@ -78,8 +78,8 @@ aws ssm put-parameter --region ap-northeast-1 --name /reptile-cage-monitor/line/
 
 ## 機器仕様
 
-- Thing／MQTT client IDは`reptile-cage-monitor-sensor`、`reptile-cage-monitor-controller`、`reptile-cage-monitor-ir-controller`です。エアコンの学習・送信はIRコントローラー専用のclassic Shadowと`reptile-cage-monitor/air-conditioner/state`を使います。
-- エアコンIRプリセットはID 1〜4で管理します。AtomS3で短押しすると枠を巡回し、1秒以上長押しすると選択中の枠を学習します。信号を受けると端末NVSとDynamoDBへ保存し、受信がない場合は60秒で終了します。Webの設定編集は認証付きAPIを通じてDynamoDBと端末Shadowへ反映します。
+- Thing／MQTT client IDは`reptile-cage-monitor-sensor`、`reptile-cage-monitor-controller`、`reptile-cage-monitor-ir-controller`です。エアコンの操作はIRコントローラー専用のclassic Shadowと`reptile-cage-monitor/air-conditioner/state`を使います。
+- エアコンはDaikin312形式です。Webの指定値（電源、冷房／暖房、0.5℃刻みの設定温度、上下風向、風量）をShadow経由でIRコントローラーへ渡し、IRremoteESP8266の`IRDaikin312`で組み立てて送信します。それ以外の項目は実機リモコンから取得した初期値のままです。
 - 温度が32°C未満ならヒーターON、32°C以上ならOFFです。3分を超えて新しい温度を受け取れない場合はヒーターONにします。
 - 新しいShadowにライト状態がない場合、ヒーター処理が現時刻に合うライト状態を初期設定します。ライトの予定制御はJST 7:00 ON、19:00 OFFで、手動操作は次の予定時刻まで有効です。
 - 24–32°C、湿度40–90%から外れた最初の値でLINE通知し、異常が続く場合は1時間間隔で再通知します。機器同期通知は実装しません。

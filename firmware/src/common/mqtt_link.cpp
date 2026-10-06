@@ -26,7 +26,7 @@ void MqttLink::begin() {
     secureClient_.setPrivateKey(IOT_PRIVATE_KEY);
     client_.setServer(IOT_ENDPOINT, 8883);
     // PubSubClient silently drops messages larger than the buffer (shadow get/accepted carries
-    // per-element metadata; the IR "captured" event publishes up to 700 timings).
+    // per-element metadata).
     client_.setBufferSize(MQTT_BUFFER_SIZE);
     client_.setKeepAlive(60);
     WiFi.mode(WIFI_STA);
