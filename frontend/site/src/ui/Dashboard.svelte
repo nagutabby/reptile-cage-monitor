@@ -188,7 +188,7 @@
       region: config.region,
       endpoint: config.endpoint,
       identityPoolId: config.identityPoolId,
-      ...(idToken ? { lightControl: { token: idToken } } : {}),
+      ...(idToken ? { auth: { token: idToken } } : {}),
     };
     try {
       await window.ReptileLive.start(liveConfig);
@@ -267,7 +267,7 @@
     <div class="live-grid">
       <article class="metric-card temp-card"><span>最新温度</span><strong id="temperature">{latestTelemetry ? `${latestTelemetry.temp_c.toFixed(1)} ℃` : "-- ℃"}</strong></article>
       <article class="metric-card humidity-card"><span>最新湿度</span><strong id="humidity">{latestTelemetry ? `${latestTelemetry.humidity.toFixed(0)} %` : "-- %"}</strong></article>
-      <article class="metric-card"><span>ライト</span><div class="control-line"><strong id="light">不明</strong><button type="button" id="light-toggle" class="light-toggle" role="switch" aria-label="ライト" aria-checked="false" disabled={idToken === null}><span class="thumb"></span></button></div><small class="control-status" id="light-control-status" role="status"></small></article>
+      <article class="metric-card"><span>ライト</span><strong id="light">不明</strong></article>
       <article class="metric-card"><span>パネルヒーター</span><strong id="heater">不明</strong></article>
     </div>
     <article class="metric-card air-conditioner-card">
@@ -362,15 +362,7 @@
   .ac-button:hover:not(:disabled) { background: #65502e; }
   .ac-button:disabled { opacity: .45; cursor: not-allowed; }
   .air-conditioner-note { padding-top: 8px !important; }
-  .control-line { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
-  .control-line strong { margin-top: 14px; }
-  .light-toggle { flex: none; width: 48px; height: 28px; padding: 3px; border: 0; border-radius: 14px; background: #77685d; cursor: pointer; transition: background .2s; }
-  .light-toggle[aria-checked="true"] { background: #c08a20; }
-  .light-toggle:disabled { opacity: .45; cursor: not-allowed; }
-  .light-toggle:focus-visible, button:focus-visible { outline: 2px solid #f5eee7; outline-offset: 3px; }
-  .thumb { display: block; width: 22px; height: 22px; border-radius: 50%; background: white; transition: transform .2s; }
-  .light-toggle[aria-checked="true"] .thumb { transform: translateX(20px); }
-  .control-status { min-height: 1em; color: #f7d7a1 !important; }
+  button:focus-visible { outline: 2px solid #f5eee7; outline-offset: 3px; }
   .message { margin-top: 15px; color: #e7c688; font-size: .88rem; }
   .history-section { margin-top: 43px; }
   .history-heading { margin-bottom: 17px; }

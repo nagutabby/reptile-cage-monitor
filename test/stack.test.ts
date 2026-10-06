@@ -40,10 +40,9 @@ describe("ReptileCageMonitor stack", () => {
     expect(JSON.stringify(template)).toContain("/reptile-cage-monitor/line/to-id");
 
     const routes = Object.values(resources).filter((resource) => resource.Type === "AWS::ApiGatewayV2::Route");
-    const lightRoute = routes.find((resource) => resource.Properties?.RouteKey === "POST /control/light");
     const historyRoute = routes.find((resource) => resource.Properties?.RouteKey === "GET /api/{proxy+}");
     const airConditionerRoute = routes.find((resource) => resource.Properties?.RouteKey === "POST /control/air-conditioner");
-    expect(lightRoute?.Properties).toMatchObject({ AuthorizationType: "JWT" });
+    expect(routes.some((resource) => resource.Properties?.RouteKey === "POST /control/light")).toBe(false);
     expect(historyRoute?.Properties).toMatchObject({ AuthorizationType: "NONE" });
     expect(airConditionerRoute?.Properties).toMatchObject({ AuthorizationType: "JWT" });
     expect(JSON.stringify(template)).not.toContain("air-conditioner-presets");

@@ -2,7 +2,6 @@ import { GetCommand, QueryCommand } from "@aws-sdk/lib-dynamodb";
 import { Hono, type MiddlewareHandler } from "hono";
 import { handle } from "@hono/aws-lambda";
 import { ddb, requireTableName } from "./database";
-import { setLight } from "./light-control";
 import { setAirConditioner } from "./air-conditioner-control";
 
 export interface ReadingRecord {
@@ -16,7 +15,6 @@ export interface ReadingRecord {
 export interface ApiDependencies {
   listReadings(minutes: number): Promise<ReadingRecord[]>;
   getDeviceState(): Promise<DeviceState>;
-  setLight(isLightOn: boolean): Promise<SetLightResult>;
   setAirConditioner(settings: AirConditionerSettings): Promise<SetAirConditionerResult>;
   getPublicConfig(): PublicConfig;
 }
@@ -35,10 +33,6 @@ export interface PublicConfig {
   userPoolId: string;
   clientId: string;
   cognitoDomain: string;
-}
-
-export interface SetLightResult {
-  status: "updated" | "unchanged" | "superseded";
 }
 
 export type AirConditionerMode = "cool" | "heat";
@@ -61,11 +55,6 @@ export interface SetAirConditionerResult {
 type ReadingsQueryInput = {
   in: { query: { minutes?: string | string[] } };
   out: { query: { minutes: number } };
-};
-
-type LightBodyInput = {
-  in: { json: { is_light_on: boolean } };
-  out: { json: { is_light_on: boolean } };
 };
 
 type AirConditionerBodyInput = {
@@ -101,20 +90,6 @@ const validateReadingsQuery: MiddlewareHandler<{}, "/api/readings", ReadingsQuer
   await next();
 };
 
-const validateLightBody: MiddlewareHandler<{}, "/control/light", LightBodyInput> = async (context, next) => {
-  let body: unknown;
-  try {
-    body = await context.req.json();
-  } catch {
-    return context.json({ error: "invalid JSON body" }, 400);
-  }
-  if (!body || typeof body !== "object" || typeof (body as Record<string, unknown>).is_light_on !== "boolean") {
-    return context.json({ error: "is_light_on must be boolean" }, 400);
-  }
-  context.req.addValidatedData("json", { is_light_on: (body as { is_light_on: boolean }).is_light_on });
-  await next();
-};
-
 const validateAirConditionerBody: MiddlewareHandler<{}, "/control/air-conditioner", AirConditionerBodyInput> = async (context, next) => {
   let body: unknown;
   try {
@@ -139,10 +114,6 @@ export function createApi(dependencies: ApiDependencies) {
       return context.json(await dependencies.listReadings(minutes));
     })
     .get("/api/device_state", async (context) => context.json(await dependencies.getDeviceState()))
-    .post("/control/light", validateLightBody, async (context) => {
-      const { is_light_on: isLightOn } = context.req.valid("json");
-      return context.json(await dependencies.setLight(isLightOn));
-    })
     .post("/control/air-conditioner", validateAirConditionerBody, async (context) => {
       return context.json(await dependencies.setAirConditioner(context.req.valid("json")));
     });
@@ -203,7 +174,6 @@ async function getDeviceState(): Promise<DeviceState> {
 export const app = createApi({
   listReadings,
   getDeviceState,
-  setLight,
   setAirConditioner,
   getPublicConfig: (): PublicConfig => ({
     region: process.env.AWS_REGION ?? "ap-northeast-1",

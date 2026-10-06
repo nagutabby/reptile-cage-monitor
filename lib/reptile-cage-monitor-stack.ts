@@ -297,7 +297,7 @@ export class ReptileCageMonitorStack extends cdk.Stack {
       conditions: { StringEquals: { "kms:ViaService": `ssm.${this.region}.amazonaws.com` } },
     }));
 
-    const apiFunction = new lambdaNodejs.NodejsFunction(this, "LightControl", {
+    const apiFunction = new lambdaNodejs.NodejsFunction(this, "ApiFunction", {
       entry: path.join(__dirname, "..", "lambda", "api.ts"),
       handler: "handler",
       runtime: LAMBDA_RUNTIME,
@@ -317,19 +317,13 @@ export class ReptileCageMonitorStack extends cdk.Stack {
       actions: ["iot:GetThingShadow", "iot:UpdateThingShadow"],
       resources: [topicArn("thing", CONTROLLER_THING_NAME), topicArn("thing", IR_CONTROLLER_THING_NAME)],
     }));
-    new cloudwatch.Alarm(this, "LightControlFailures", {
+    new cloudwatch.Alarm(this, "ApiFunctionFailures", {
       metric: apiFunction.metricErrors(), threshold: 1, evaluationPeriods: 1,
     });
     api.addRoutes({
       path: "/api/{proxy+}",
       methods: [apigwv2.HttpMethod.GET],
       integration: new apigwv2Integrations.HttpLambdaIntegration("DashboardApiIntegration", apiFunction),
-    });
-    api.addRoutes({
-      path: "/control/light",
-      methods: [apigwv2.HttpMethod.POST],
-      integration: new apigwv2Integrations.HttpLambdaIntegration("LightControlIntegration", apiFunction),
-      authorizer,
     });
     api.addRoutes({
       path: "/control/air-conditioner",
@@ -607,7 +601,6 @@ export class ReptileCageMonitorStack extends cdk.Stack {
     }
     new cdk.CfnOutput(this, "ApiUrl", { value: api.apiEndpoint });
     new cdk.CfnOutput(this, "SessionUrl", { value: `${api.apiEndpoint}/session` });
-    new cdk.CfnOutput(this, "LightControlUrl", { value: `${api.apiEndpoint}/control/light` });
     new cdk.CfnOutput(this, "AirConditionerControlUrl", { value: `${api.apiEndpoint}/control/air-conditioner` });
     new cdk.CfnOutput(this, "ReadingsTableName", { value: table.tableName });
     new cdk.CfnOutput(this, "LineTokenParameter", { value: lineTokenParameterName });

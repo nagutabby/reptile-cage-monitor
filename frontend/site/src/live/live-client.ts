@@ -7,7 +7,7 @@ export interface LiveClientConfig {
   region: string;
   endpoint: string;
   identityPoolId: string;
-  lightControl?: {
+  auth?: {
     token: string;
   };
 }
@@ -76,10 +76,6 @@ export async function start(config: LiveClientConfig): Promise<void> {
     const element = document.getElementById(id);
     if (element) element.textContent = value;
   };
-  const setControlStatus = (value: string): void => {
-    const element = document.getElementById("light-control-status");
-    if (element) element.textContent = value;
-  };
   const airPower = document.querySelector<HTMLSelectElement>("#ac-power");
   const airMode = document.querySelector<HTMLSelectElement>("#ac-mode");
   const airTemp = document.querySelector<HTMLInputElement>("#ac-temp");
@@ -115,7 +111,7 @@ export async function start(config: LiveClientConfig): Promise<void> {
     if (!airMode || !airTemp || !airSendButton) return;
     airTemp.min = airMode.value === "cool" ? "18" : "10";
     if (airMode.value === "cool" && Number(airTemp.value) < 18) airTemp.value = "18";
-    const loggedIn = Boolean(config.lightControl?.token);
+    const loggedIn = Boolean(config.auth?.token);
     const valid = currentAirSettings() !== null;
     if (airAvailability) {
       airAvailability.textContent = !loggedIn ? "ログインするとエアコンを操作できます"
@@ -145,7 +141,7 @@ export async function start(config: LiveClientConfig): Promise<void> {
   }
 
   async function requestAirConditionerCommand(): Promise<void> {
-    const token = config.lightControl?.token;
+    const token = config.auth?.token;
     const settings = currentAirSettings();
     if (!token || !settings || airRequestInFlight || activeAirCommandId !== null) return;
     airRequestInFlight = true;
@@ -191,55 +187,6 @@ export async function start(config: LiveClientConfig): Promise<void> {
   airForm?.addEventListener("submit", (event) => event.preventDefault());
   airSendButton?.addEventListener("click", () => void requestAirConditionerCommand());
   updateAirConditionerForm();
-
-  const lightToggle = document.querySelector<HTMLButtonElement>("#light-toggle");
-  let lightOn: boolean | null = null;
-  let pendingLight: boolean | null = null;
-  let pendingTimeout: ReturnType<typeof setTimeout> | undefined;
-  let requestInFlight = false;
-
-  function renderLightToggle(): void {
-    if (!lightToggle) return;
-    const displayLightOn = pendingLight ?? lightOn;
-    lightToggle.disabled = lightOn === null || pendingLight !== null || !config.lightControl?.token;
-    lightToggle.setAttribute("aria-checked", String(displayLightOn === true));
-    lightToggle.setAttribute("aria-label", displayLightOn === null ? "ライトの状態を取得中" : `ライトを${displayLightOn ? "OFF" : "ON"}にする`);
-  }
-
-  lightToggle?.addEventListener("click", async () => {
-    if (lightOn === null || pendingLight !== null || !config.lightControl?.token) return;
-    const requestedLight = !lightOn;
-    pendingLight = requestedLight;
-    requestInFlight = true;
-    setControlStatus("切替中…");
-    renderLightToggle();
-    try {
-      const response = await apiClient.control.light.$post(
-        { json: { is_light_on: requestedLight } },
-        { headers: { Authorization: `Bearer ${config.lightControl.token}` } },
-      );
-      if (!response.ok) throw new Error(`Light control failed: ${response.status}`);
-      requestInFlight = false;
-      if (lightOn === requestedLight) {
-        pendingLight = null;
-        setControlStatus("");
-      } else {
-        pendingTimeout = setTimeout(() => {
-          pendingLight = null;
-          setControlStatus("状態を確認できません");
-          renderLightToggle();
-        }, 90000);
-      }
-    } catch (error) {
-      requestInFlight = false;
-      pendingLight = null;
-      setControlStatus("切替に失敗しました");
-      console.warn("Light control error", error);
-    }
-    renderLightToggle();
-  });
-
-  renderLightToggle();
   const identityClient = new CognitoIdentityClient({ region: config.region });
   let identityId: string | undefined;
   let client: MqttClient | undefined;
@@ -249,7 +196,7 @@ export async function start(config: LiveClientConfig): Promise<void> {
     if (stopped) return;
     try {
       let credentials: { AccessKeyId: string; SecretKey: string; SessionToken: string } | undefined;
-      const accessToken = config.lightControl?.token;
+      const accessToken = config.auth?.token;
       if (accessToken) {
         const response = await fetch("/session", { method: "POST", headers: { Authorization: `Bearer ${accessToken}` } });
         if (!response.ok) throw new Error(`Authenticated IoT session failed: ${response.status}`);
@@ -303,7 +250,7 @@ export async function start(config: LiveClientConfig): Promise<void> {
           "reptile-cage-monitor/cage/telemetry",
           "reptile-cage-monitor/cage/state",
         ];
-        if (config.lightControl?.token) topics.push("reptile-cage-monitor/air-conditioner/state");
+        if (config.auth?.token) topics.push("reptile-cage-monitor/air-conditioner/state");
         mqttClient.subscribe(topics, { qos: 1 });
       });
       mqttClient.on("message", (topic, bytes) => {
@@ -328,14 +275,7 @@ export async function start(config: LiveClientConfig): Promise<void> {
             if (event) handleAirConditionerEvent(event);
           } else if (topic.endsWith("/state")) {
             if (typeof data.is_light_on === "boolean") {
-              lightOn = data.is_light_on;
-              setText("light", lightOn ? "ON" : "OFF");
-              if (pendingLight === lightOn && !requestInFlight) {
-                clearTimeout(pendingTimeout);
-                pendingLight = null;
-                setControlStatus("");
-              }
-              renderLightToggle();
+              setText("light", data.is_light_on ? "ON" : "OFF");
             }
             if (typeof data.is_heater_on === "boolean") setText("heater", data.is_heater_on ? "ON" : "OFF");
           }

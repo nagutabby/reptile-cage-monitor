@@ -12,7 +12,6 @@ function testApi() {
       is_heater_on: true,
       is_heater_on_changed_at: "2026-09-30T00:00:00+00:00",
     })),
-    setLight: vi.fn(async (isLightOn: boolean) => ({ status: "updated" as const, is_light_on: isLightOn })),
     setAirConditioner: vi.fn(async (_settings: AirConditionerSettings) => ({
       status: "queued" as const,
       command_id: "command-123",
@@ -48,18 +47,9 @@ describe("Hono API", () => {
     expect((await app.request("/api/readings?minutes=1.5")).status).toBe(400);
   });
 
-  it("returns device state and validates manual light requests", async () => {
-    const { app, dependencies } = testApi();
+  it("returns device state", async () => {
+    const { app } = testApi();
     expect((await app.request("/api/device_state")).status).toBe(200);
-    expect((await app.request("/control/light", { method: "POST", body: "{" })).status).toBe(400);
-    expect((await app.request("/control/light", { method: "POST", body: JSON.stringify({ is_light_on: 1 }) })).status).toBe(400);
-    const result = await app.request("/control/light", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ is_light_on: true }),
-    });
-    expect(result.status).toBe(200);
-    expect(dependencies.setLight).toHaveBeenCalledWith(true);
   });
 
   it("validates air-conditioner settings before queueing the IR command", async () => {
