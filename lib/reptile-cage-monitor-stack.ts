@@ -554,6 +554,7 @@ export class ReptileCageMonitorStack extends cdk.Stack {
       distribution,
       distributionPaths: ["/*"],
       prune: true,
+      logGroup: makeLogGroup("DashboardAssets"),
     });
 
     new cdk.CfnOutput(this, "UserPoolId", { value: userPool.userPoolId });
