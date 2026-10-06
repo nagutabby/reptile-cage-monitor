@@ -96,7 +96,7 @@ export async function start(config: LiveClientConfig): Promise<void> {
     const temp = Number(airTemp?.value);
     const fan = airFan?.value;
     const swingV = airSwingV?.value;
-    if ((power !== "on" && power !== "off") || (mode !== "cool" && mode !== "heat") || !Number.isFinite(temp)
+    if ((power !== "on" && power !== "off") || (mode !== "cool" && mode !== "heat" && mode !== "dry") || !Number.isFinite(temp)
       || !Number.isInteger(temp * 2) || temp < 10 || temp > 32
       || (mode === "cool" && temp < 18) || !fan || !swingV) return null;
     return {

@@ -40,7 +40,7 @@ struct Option {
     uint8_t value;
 };
 
-constexpr Option MODES[] = {{"cool", kDaikinCool}, {"heat", kDaikinHeat}};
+constexpr Option MODES[] = {{"cool", kDaikinCool}, {"heat", kDaikinHeat}, {"dry", kDaikinDry}};
 constexpr Option FANS[] = {
     {"auto", kDaikinFanAuto}, {"quiet", kDaikinFanQuiet},
     {"1", 1}, {"2", 2}, {"3", 3}, {"4", 4}, {"5", 5},

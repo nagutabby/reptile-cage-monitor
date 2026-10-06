@@ -36,7 +36,7 @@ export interface PublicConfig {
   cognitoDomain: string;
 }
 
-export type AirConditionerMode = "cool" | "heat";
+export type AirConditionerMode = "cool" | "heat" | "dry";
 export type AirConditionerFan = "auto" | "quiet" | "1" | "2" | "3" | "4" | "5";
 export type AirConditionerVerticalSwing = "off" | "swing" | "highest" | "high" | "upper_middle" | "lower_middle" | "low" | "lowest" | "breeze" | "circulate";
 
@@ -63,7 +63,7 @@ type AirConditionerBodyInput = {
   out: { json: AirConditionerSettings };
 };
 
-const AIR_CONDITIONER_MODES = new Set<AirConditionerMode>(["cool", "heat"]);
+const AIR_CONDITIONER_MODES = new Set<AirConditionerMode>(["cool", "heat", "dry"]);
 const AIR_CONDITIONER_FANS = new Set<AirConditionerFan>(["auto", "quiet", "1", "2", "3", "4", "5"]);
 const AIR_CONDITIONER_SWING_V = new Set<AirConditionerVerticalSwing>([
   "off", "swing", "highest", "high", "upper_middle", "lower_middle", "low", "lowest", "breeze", "circulate",

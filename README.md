@@ -79,7 +79,7 @@ aws ssm put-parameter --region ap-northeast-1 --name /reptile-cage-monitor/line/
 ## 機器仕様
 
 - Thing／MQTT client IDは`reptile-cage-monitor-sensor`、`reptile-cage-monitor-controller`、`reptile-cage-monitor-ir-controller`です。エアコンの操作はIRコントローラー専用のclassic Shadowと`reptile-cage-monitor/air-conditioner/state`を使います。
-- エアコンはDaikin312形式です。Webの指定値（電源、冷房／暖房、0.5℃刻みの設定温度、上下風向、風量）をShadow経由でIRコントローラーへ渡し、IRremoteESP8266の`IRDaikin312`で組み立てて送信します。それ以外の項目は実機リモコンから取得した初期値のままです。
+- エアコンはDaikin312形式です。Webの指定値（電源、冷房／暖房／ドライ、0.5℃刻みの設定温度、上下風向、風量）をShadow経由でIRコントローラーへ渡し、IRremoteESP8266の`IRDaikin312`で組み立てて送信します。それ以外の項目は実機リモコンから取得した初期値のままです。
 - 温度が32°C未満ならヒーターON、32°C以上ならOFFです。3分を超えて新しい温度を受け取れない場合はヒーターONにします。
 - 新しいShadowにライト状態がない場合、ヒーター処理が現時刻に合うライト状態を初期設定します。ライトの予定制御はJST 7:00 ON、19:00 OFFで、手動操作は次の予定時刻まで有効です。
 - 24–32°C、湿度40–90%から外れた最初の値でLINE通知し、異常が続く場合は1時間間隔で再通知します。機器同期通知は実装しません。

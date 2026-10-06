@@ -63,13 +63,14 @@ describe("Hono API", () => {
     expect((await post({ ...airConditionerSettings, temp_c: 17 })).status).toBe(400);
     expect((await post({ ...airConditionerSettings, temp_c: 27.3 })).status).toBe(400);
     expect((await post({ ...airConditionerSettings, power: "on" })).status).toBe(400);
-    expect((await post({ ...airConditionerSettings, mode: "dry" })).status).toBe(400);
+    expect((await post({ ...airConditionerSettings, mode: "auto" })).status).toBe(400);
     expect((await post({ ...airConditionerSettings, fan: "6" })).status).toBe(400);
     expect((await post({ ...airConditionerSettings, swing_v: "left" })).status).toBe(400);
     expect(dependencies.setAirConditioner).not.toHaveBeenCalled();
 
     const heat = await post({ power: false, mode: "heat", temp_c: 24.5, fan: "quiet", swing_v: "highest", extra: true });
     expect(heat.status).toBe(200);
+    expect((await post({ ...airConditionerSettings, mode: "dry" })).status).toBe(200);
     expect(await heat.json()).toEqual({ status: "queued", command_id: "command-123" });
     expect(dependencies.setAirConditioner).toHaveBeenCalledWith({
       power: false, mode: "heat", temp_c: 24.5, fan: "quiet", swing_v: "highest",

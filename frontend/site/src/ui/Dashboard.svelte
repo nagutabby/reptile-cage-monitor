@@ -268,7 +268,7 @@
     <div class="grid grid-cols-2 gap-3 lg:grid-cols-5">
       <article class="stat rounded-box border border-base-300 bg-base-200"><div class="stat-title">最新温度</div><div class="stat-value text-warning" id="temperature">{latestTelemetry ? `${latestTelemetry.temp_c.toFixed(1)} ℃` : "-- ℃"}</div></article>
       <article class="stat rounded-box border border-base-300 bg-base-200"><div class="stat-title">最新湿度</div><div class="stat-value text-info" id="humidity">{latestTelemetry ? `${latestTelemetry.humidity.toFixed(0)} %` : "-- %"}</div></article>
-      <article class="stat rounded-box border border-base-300 bg-base-200"><div class="stat-title">センサー電池</div><div class="stat-value" id="battery">{latestTelemetry?.battery === undefined ? "-- %" : `${latestTelemetry.battery} %`}</div></article>
+      <article class="stat rounded-box border border-base-300 bg-base-200"><div class="stat-title">バッテリー残量</div><div class="stat-value" id="battery">{latestTelemetry?.battery === undefined ? "-- %" : `${latestTelemetry.battery} %`}</div></article>
       <article class="stat rounded-box border border-base-300 bg-base-200"><div class="stat-title">ライト</div><div class="stat-value" id="light">不明</div></article>
       <article class="stat rounded-box border border-base-300 bg-base-200"><div class="stat-title">パネルヒーター</div><div class="stat-value" id="heater">不明</div></article>
     </div>
@@ -286,10 +286,10 @@
             <label class="form-control flex flex-col gap-1 text-sm">電源
               <select id="ac-power" class="select w-full"><option value="on" selected>ON</option><option value="off">OFF</option></select>
             </label>
-            <label class="form-control flex flex-col gap-1 text-sm">冷房 or 暖房
-              <select id="ac-mode" class="select w-full"><option value="cool" selected>冷房</option><option value="heat">暖房</option></select>
+            <label class="form-control flex flex-col gap-1 text-sm">運転モード
+              <select id="ac-mode" class="select w-full"><option value="cool" selected>冷房</option><option value="heat">暖房</option><option value="dry">ドライ</option></select>
             </label>
-            <label class="form-control flex flex-col gap-1 text-sm">設定温度（0.5℃刻み）
+            <label class="form-control flex flex-col gap-1 text-sm">設定温度
               <input id="ac-temp" class="input w-full" type="number" min="18" max="32" step="0.5" value="27" required />
             </label>
             <label class="form-control flex flex-col gap-1 text-sm">上下の風向
@@ -319,13 +319,13 @@
     </div>
     <div class="card card-border mt-3 border-base-300 bg-base-200">
       <div class="card-body p-4">
-        <div class="flex items-center justify-between"><h3 class="font-semibold">温度</h3><span class="badge badge-warning badge-outline">温度（℃）</span></div>
+        <div class="flex items-center justify-between"><h3 class="font-semibold">温度</h3><span class="badge badge-warning badge-outline">温度</span></div>
         <HistoryChart data={readings} valueKey="temp_c" min={tempMin} max={tempMax} color="#ffb86c" title="温度" />
       </div>
     </div>
     <div class="card card-border mt-3 border-base-300 bg-base-200">
       <div class="card-body p-4">
-        <div class="flex items-center justify-between"><h3 class="font-semibold">湿度</h3><span class="badge badge-info badge-outline">湿度（%）</span></div>
+        <div class="flex items-center justify-between"><h3 class="font-semibold">湿度</h3><span class="badge badge-info badge-outline">湿度</span></div>
         <HistoryChart data={readings} valueKey="humidity" min={humidityMin} max={humidityMax} color="#8be9fd" title="湿度" />
       </div>
     </div>
