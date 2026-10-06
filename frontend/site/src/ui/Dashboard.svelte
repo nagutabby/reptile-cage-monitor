@@ -246,9 +246,9 @@
     <div class="flex w-full items-center justify-between gap-3 sm:w-auto">
       {#if idToken}
         <span class="text-sm text-base-content/70">{email ?? "ログイン中"}</span>
-        <button class="btn btn-outline btn-sm" onclick={logout}>ログアウト</button>
+        <button class="btn btn-outline" onclick={logout}>ログアウト</button>
       {:else}
-        <button class="btn btn-primary btn-sm" onclick={login} disabled={!config}>ログイン</button>
+        <button class="btn btn-primary" onclick={login} disabled={!config}>ログイン</button>
       {/if}
     </div>
   </header>
@@ -272,8 +272,14 @@
     </div>
     <article class="card card-border mt-3 border-base-300 bg-base-200">
       <div class="card-body">
-        <h3 class="card-title text-base">エアコン</h3>
         <form id="air-conditioner-form">
+          <div class="mb-3 flex flex-wrap items-center justify-between gap-3">
+            <h3 class="card-title text-base">エアコン</h3>
+            <div class="flex items-center gap-3">
+              <small id="ac-availability" class="text-base-content/70" aria-live="polite">{idToken === null ? "ログインするとエアコンを操作できます" : ""}</small>
+              <button type="button" id="air-conditioner-send" class="btn btn-primary" disabled={idToken === null}>データを送信</button>
+            </div>
+          </div>
           <div class="grid grid-cols-2 gap-3 lg:grid-cols-5">
             <label class="form-control flex flex-col gap-1 text-sm">電源
               <select id="ac-power" class="select w-full"><option value="on" selected>ON</option><option value="off">OFF</option></select>
@@ -292,10 +298,6 @@
             <label class="form-control flex flex-col gap-1 text-sm">風量
               <select id="ac-fan" class="select w-full"><option value="auto" selected>自動</option><option value="quiet">静音</option><option value="1">1（弱）</option><option value="2">2</option><option value="3">3</option><option value="4">4</option><option value="5">5（強）</option></select>
             </label>
-          </div>
-          <small id="ac-availability" class="mt-3 block text-base-content/70" aria-live="polite">{idToken === null ? "ログインするとエアコンを操作できます" : ""}</small>
-          <div class="mt-3">
-            <button type="button" id="air-conditioner-send" class="btn btn-primary" disabled={idToken === null}>データを送信</button>
           </div>
         </form>
         <small id="air-conditioner-control-status" class="control-status min-h-4 text-warning" role="status" aria-live="polite"></small>
