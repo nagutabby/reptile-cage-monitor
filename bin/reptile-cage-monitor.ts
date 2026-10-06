@@ -37,9 +37,6 @@ new ReptileCageMonitorStack(app, "ReptileCageMonitor", {
   ...(dashboardAdditionalDomainName ? { dashboardAdditionalDomainName } : {}),
   ...(dashboardAdditionalHostedZoneName ? { dashboardAdditionalHostedZoneName } : {}),
   ...(dashboardAdditionalHostedZoneId ? { dashboardAdditionalHostedZoneId } : {}),
-  ...(app.node.tryGetContext("legacyWebBaseUrl")
-    ? { legacyWebBaseUrl: context("legacyWebBaseUrl") }
-    : {}),
   ...(app.node.tryGetContext("lineTokenParameterName")
     ? { lineTokenParameterName: context("lineTokenParameterName") }
     : {}),

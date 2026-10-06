@@ -8,7 +8,6 @@ import * as cloudfront from "aws-cdk-lib/aws-cloudfront";
 import * as origins from "aws-cdk-lib/aws-cloudfront-origins";
 import * as acm from "aws-cdk-lib/aws-certificatemanager";
 import * as cognito from "aws-cdk-lib/aws-cognito";
-import * as cloudwatch from "aws-cdk-lib/aws-cloudwatch";
 import * as dynamodb from "aws-cdk-lib/aws-dynamodb";
 import * as events from "aws-cdk-lib/aws-events";
 import * as eventTargets from "aws-cdk-lib/aws-events-targets";
@@ -54,8 +53,6 @@ export interface ReptileCageMonitorStackProps extends cdk.StackProps {
   readonly dashboardAdditionalDomainName?: string;
   readonly dashboardAdditionalHostedZoneId?: string;
   readonly dashboardAdditionalHostedZoneName?: string;
-  /** Optional old site origin, for a short overlap period. */
-  readonly legacyWebBaseUrl?: string;
   readonly lineTokenParameterName?: string;
   readonly lineToParameterName?: string;
 }
@@ -128,28 +125,25 @@ export class ReptileCageMonitorStack extends cdk.Stack {
       ],
     });
 
-    // Keep this existing client and ID so the current Cognito setup remains addressable
-    // during the cutover. The Astro client is a public PKCE client for browser login.
-    const legacyClient = userPool.addClient("StreamlitClient", {
-      generateSecret: true,
-      preventUserExistenceErrors: true,
-      oAuth: {
-        flows: { authorizationCodeGrant: true },
-        callbackUrls: props.legacyWebBaseUrl
-          ? [`${props.legacyWebBaseUrl.replace(/\/$/, "")}/oauth2callback`, "http://localhost:8501/oauth2callback"]
-          : ["http://localhost:8501/oauth2callback"],
-        logoutUrls: [props.legacyWebBaseUrl?.replace(/\/$/, "") ?? "http://localhost:8501"],
-        scopes: [cognito.OAuthScope.OPENID, cognito.OAuthScope.EMAIL, cognito.OAuthScope.PROFILE],
-      },
-    });
     userPool.addDomain("LoginDomain", {
       cognitoDomain: { domainPrefix: props.cognitoDomainPrefix },
     });
 
+    const astroClient = userPool.addClient("AstroClient", {
+      generateSecret: false,
+      preventUserExistenceErrors: true,
+      oAuth: {
+        flows: { authorizationCodeGrant: true },
+        // Replaced with the generated CloudFront hostname after the distribution is created.
+        callbackUrls: ["https://dashboard.invalid/oauth2callback"],
+        logoutUrls: ["https://dashboard.invalid/"],
+        scopes: [cognito.OAuthScope.OPENID, cognito.OAuthScope.EMAIL, cognito.OAuthScope.PROFILE],
+      },
+    });
     const identityPool = new cognito.CfnIdentityPool(this, "ViewerIdentities", {
       allowUnauthenticatedIdentities: true,
       cognitoIdentityProviders: [{
-        clientId: legacyClient.userPoolClientId,
+        clientId: astroClient.userPoolClientId,
         providerName: userPool.userPoolProviderName,
         serverSideTokenCheck: true,
       }],
@@ -234,32 +228,11 @@ export class ReptileCageMonitorStack extends cdk.Stack {
       actions: ["cognito-identity:GetId", "cognito-identity:GetCredentialsForIdentity"], resources: ["*"],
     }));
 
-    const api = new apigwv2.HttpApi(this, "ViewerSessionApi", {
-      ...(props.legacyWebBaseUrl ? { corsPreflight: {
-        allowOrigins: [props.legacyWebBaseUrl.replace(/\/$/, "")],
-        allowMethods: [apigwv2.CorsHttpMethod.POST, apigwv2.CorsHttpMethod.GET, apigwv2.CorsHttpMethod.PATCH],
-        allowHeaders: ["Authorization", "Content-Type"],
-      } } : {}),
-    });
-    const astroClient = userPool.addClient("AstroClient", {
-      generateSecret: false,
-      preventUserExistenceErrors: true,
-      oAuth: {
-        flows: { authorizationCodeGrant: true },
-        // Replaced with the generated CloudFront hostname after the distribution is created.
-        callbackUrls: ["https://dashboard.invalid/oauth2callback"],
-        logoutUrls: ["https://dashboard.invalid/"],
-        scopes: [cognito.OAuthScope.OPENID, cognito.OAuthScope.EMAIL, cognito.OAuthScope.PROFILE],
-      },
-    });
-    // Astro's redirect/logout values are filled once the distribution's generated hostname is known.
-    // Cognito app-client URLs accept CloudFormation tokens, so these are replaced below by a Cfn client
-    // override after the distribution is created.
-
+    const api = new apigwv2.HttpApi(this, "ViewerSessionApi");
     const authorizer = new apigwv2Authorizers.HttpJwtAuthorizer(
       "ViewerJwt",
       `https://cognito-idp.${this.region}.amazonaws.com/${userPool.userPoolId}`,
-      { jwtAudience: [legacyClient.userPoolClientId, astroClient.userPoolClientId] },
+      { jwtAudience: [astroClient.userPoolClientId] },
     );
     api.addRoutes({
       path: "/session",
@@ -280,7 +253,6 @@ export class ReptileCageMonitorStack extends cdk.Stack {
       timeout: cdk.Duration.seconds(30),
       environment: {
         TABLE_NAME: table.tableName,
-        IOT_ENDPOINT: props.iotEndpoint,
         LINE_TOKEN_PARAMETER: lineTokenParameterName,
         LINE_TO_ID_PARAMETER: lineToParameterName,
       },
@@ -312,14 +284,11 @@ export class ReptileCageMonitorStack extends cdk.Stack {
       },
       bundling: { minify: true, sourceMap: true, target: "node24" },
     });
-    table.grantReadWriteData(apiFunction);
+    table.grantReadData(apiFunction);
     apiFunction.addToRolePolicy(new iam.PolicyStatement({
       actions: ["iot:GetThingShadow", "iot:UpdateThingShadow"],
       resources: [topicArn("thing", CONTROLLER_THING_NAME), topicArn("thing", IR_CONTROLLER_THING_NAME)],
     }));
-    new cloudwatch.Alarm(this, "ApiFunctionFailures", {
-      metric: apiFunction.metricErrors(), threshold: 1, evaluationPeriods: 1,
-    });
     api.addRoutes({
       path: "/api/{proxy+}",
       methods: [apigwv2.HttpMethod.GET],
@@ -345,9 +314,6 @@ export class ReptileCageMonitorStack extends cdk.Stack {
         actions: ["iot:GetThingShadow", "iot:UpdateThingShadow"],
       resources: [topicArn("thing", CONTROLLER_THING_NAME)],
       }));
-      new cloudwatch.Alarm(this, `${constructId}Failures`, {
-        metric: fn.metricErrors(), threshold: 1, evaluationPeriods: 1,
-      });
       return fn;
     };
 
@@ -572,12 +538,6 @@ export class ReptileCageMonitorStack extends cdk.Stack {
         });
       }
     }
-    identityPool.cognitoIdentityProviders = [legacyClient, astroClient].map((client) => ({
-      clientId: client.userPoolClientId,
-      providerName: userPool.userPoolProviderName,
-      serverSideTokenCheck: true,
-    }));
-
     new s3deploy.BucketDeployment(this, "DashboardAssets", {
       sources: [s3deploy.Source.asset(path.join(__dirname, "..", "frontend", "site", "dist"))],
       destinationBucket: siteBucket,
@@ -587,9 +547,7 @@ export class ReptileCageMonitorStack extends cdk.Stack {
     });
 
     new cdk.CfnOutput(this, "UserPoolId", { value: userPool.userPoolId });
-    new cdk.CfnOutput(this, "UserPoolClientId", { value: legacyClient.userPoolClientId });
     new cdk.CfnOutput(this, "AstroClientId", { value: astroClient.userPoolClientId });
-    new cdk.CfnOutput(this, "LegacyUserPoolClientId", { value: legacyClient.userPoolClientId });
     new cdk.CfnOutput(this, "IdentityPoolId", { value: identityPool.ref });
     new cdk.CfnOutput(this, "CognitoDomain", { value: `${props.cognitoDomainPrefix}.auth.${this.region}.amazoncognito.com` });
     new cdk.CfnOutput(this, "DashboardUrl", { value: `https://${distribution.distributionDomainName}` });
@@ -599,9 +557,7 @@ export class ReptileCageMonitorStack extends cdk.Stack {
     if (props.dashboardAdditionalDomainName) {
       new cdk.CfnOutput(this, "DashboardAdditionalUrl", { value: `https://${props.dashboardAdditionalDomainName}` });
     }
-    new cdk.CfnOutput(this, "ApiUrl", { value: api.apiEndpoint });
     new cdk.CfnOutput(this, "SessionUrl", { value: `${api.apiEndpoint}/session` });
-    new cdk.CfnOutput(this, "AirConditionerControlUrl", { value: `${api.apiEndpoint}/control/air-conditioner` });
     new cdk.CfnOutput(this, "ReadingsTableName", { value: table.tableName });
     new cdk.CfnOutput(this, "LineTokenParameter", { value: lineTokenParameterName });
     new cdk.CfnOutput(this, "LineToParameter", { value: lineToParameterName });
