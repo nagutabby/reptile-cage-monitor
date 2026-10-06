@@ -21,12 +21,14 @@ constexpr uint16_t MAX_RAW_ITEMS = 700;
 constexpr uint32_t MAX_RAW_SPACE_US = 131070;
 constexpr uint8_t IR_RECEIVE_TIMEOUT_MS = 120;
 constexpr uint8_t IR_SEND_DUTY_PERCENT = 50;
-constexpr uint8_t IR_SEND_ATTEMPTS = 2;
+constexpr uint8_t IR_SEND_ATTEMPTS = 1;
 constexpr uint16_t IR_REPEAT_GAP_MS = 100;
 constexpr uint8_t PRESET_COUNT = 4;
 constexpr uint32_t LEARN_TIMEOUT_MS = 60000;
 constexpr uint32_t LEARN_LONG_PRESS_MS = 1000;
-constexpr uint16_t IR_CARRIER_HZ = 38000;
+constexpr uint16_t IR_CARRIER_HZ = 36700;  // kDaikin312Freq
+// 受信モジュールはマークを短く・スペースを長く測るため、実測値(Daikin312仕様比 約60us)を送信時に戻す
+constexpr uint32_t IR_RECEIVER_SKEW_US = 60;
 constexpr const char* LEGACY_DESIRED_KEYS[] = {
     "air_conditioner_requested_at", "air_conditioner_power", "air_conditioner_swing_h",
     "air_conditioner_quiet", "air_conditioner_powerful", "air_conditioner_econo",
@@ -420,6 +422,18 @@ void publishPresetSyncResult(uint8_t presetId) {
     mqtt.publish(SHADOW_UPDATE_TOPIC, payload.c_str());
 }
 
+void sendPresetRaw(const PresetSlot& slot) {
+    for (uint8_t attempt = 0; attempt < IR_SEND_ATTEMPTS; ++attempt) {
+        irsend.enableIROut(IR_CARRIER_HZ, IR_SEND_DUTY_PERCENT);
+        for (uint16_t index = 0; index < slot.rawLength; ++index) {
+            const uint32_t duration = slot.rawData[index];
+            if (index % 2 == 0) irsend.mark(static_cast<uint16_t>(min<uint32_t>(duration + IR_RECEIVER_SKEW_US, UINT16_MAX)));
+            else irsend.space(duration > IR_RECEIVER_SKEW_US ? duration - IR_RECEIVER_SKEW_US : 1);
+        }
+        if (attempt + 1 < IR_SEND_ATTEMPTS) delay(IR_REPEAT_GAP_MS);
+    }
+}
+
 void handleCommand(JsonObjectConst desired) {
     uint8_t syncedPresetId = 0;
     const bool syncedSettings = syncPresetSettings(desired, &syncedPresetId);
@@ -481,14 +495,7 @@ void handleCommand(JsonObjectConst desired) {
     const bool valid = strcmp(operation, "send") == 0 && slot.rawLength >= 2;
     const char* status = "failed";
     if (valid) {
-        for (uint8_t attempt = 0; attempt < IR_SEND_ATTEMPTS; ++attempt) {
-            irsend.enableIROut(IR_CARRIER_HZ, IR_SEND_DUTY_PERCENT);
-            for (uint16_t index = 0; index < slot.rawLength; ++index) {
-                if (index % 2 == 0) irsend.mark(static_cast<uint16_t>(slot.rawData[index]));
-                else irsend.space(slot.rawData[index]);
-            }
-            if (attempt + 1 < IR_SEND_ATTEMPTS) delay(IR_REPEAT_GAP_MS);
-        }
+        sendPresetRaw(slot);
         status = "sent";
         currentMessage = "Raw IR sent";
         Serial.printf("[IR] sent %u raw timings for %s\n", slot.rawLength, commandId);
