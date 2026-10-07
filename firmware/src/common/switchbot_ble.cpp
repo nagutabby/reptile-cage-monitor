@@ -195,8 +195,7 @@ bool plugReadState(const char* mac, bool& isOn, uint32_t timeoutMs,
 
 namespace {
 
-bool meterScanOnce(const char* mac, float& tempC, uint8_t& humidity, uint32_t scanSeconds,
-                   int* batteryPct) {
+bool meterScanOnce(const char* mac, MeterReading& out, uint32_t scanSeconds) {
     NimBLEScan* pScan = NimBLEDevice::getScan();
     pScan->setActiveScan(true);
     pScan->setInterval(100);
@@ -212,26 +211,27 @@ bool meterScanOnce(const char* mac, float& tempC, uint8_t& humidity, uint32_t sc
         const NimBLEAdvertisedDevice* d = results.getDevice(i);
         if (d == nullptr) continue;
         if (d->getAddress().toString() != expectedAddress) continue;
-        if (!d->haveManufacturerData()) continue;
 
-        std::string mfg = d->getManufacturerData();
+        out = MeterReading{};
         // WoSensorTHO manufacturer-specific data (Type 0xFF), per meter.md "Other" section:
         //   data[10] fractional temp, data[11] sign+integer temp, data[12] humidity
-        if (mfg.length() < 13) continue;
-        const uint8_t* data = reinterpret_cast<const uint8_t*>(mfg.data());
-
-        float fraction = data[10] & 0x0F;
-        int sign = (data[11] & 0x80) ? 1 : -1;
-        int integer = data[11] & 0x7F;
-        tempC = sign * (integer + fraction * 0.1f);
-        humidity = data[12] & 0x7F;
-        if (batteryPct != nullptr) {
-            // Service data (UUID 0xFD3D) payload after the UUID: data[2] bit[6:0] is battery %
-            // (meter.md's data[5] counts the 0x16 type byte and UUID too).
-            std::string svc = d->getServiceData(NimBLEUUID(static_cast<uint16_t>(0xFD3D)));
-            *batteryPct = svc.length() >= 3 ? (static_cast<uint8_t>(svc[2]) & 0x7F) : -1;
+        if (d->haveManufacturerData()) {
+            std::string mfg = d->getManufacturerData();
+            if (mfg.length() >= 13) {
+                const uint8_t* data = reinterpret_cast<const uint8_t*>(mfg.data());
+                float fraction = data[10] & 0x0F;
+                int sign = (data[11] & 0x80) ? 1 : -1;
+                int integer = data[11] & 0x7F;
+                out.tempC = sign * (integer + fraction * 0.1f);
+                out.humidity = data[12] & 0x7F;
+                out.hasTempHumidity = true;
+            }
         }
-        found = true;
+        // Service data (UUID 0xFD3D) payload after the UUID: data[2] bit[6:0] is battery %
+        // (meter.md's data[5] counts the 0x16 type byte and UUID too).
+        std::string svc = d->getServiceData(NimBLEUUID(static_cast<uint16_t>(0xFD3D)));
+        if (svc.length() >= 3) out.batteryPct = static_cast<uint8_t>(svc[2]) & 0x7F;
+        found = out.hasTempHumidity || out.batteryPct >= 0;
     }
 
     pScan->clearResults();
@@ -240,10 +240,27 @@ bool meterScanOnce(const char* mac, float& tempC, uint8_t& humidity, uint32_t sc
 
 } // namespace
 
+bool meterScanReadPartial(const char* mac, MeterReading& out, uint32_t scanSeconds,
+                          uint8_t maxAttempts) {
+    for (uint8_t attempt = 1; attempt <= maxAttempts; attempt++) {
+        if (meterScanOnce(mac, out, scanSeconds)) return true;
+        if (attempt < maxAttempts) {
+            Serial.printf("[Meter] retry %u/%u: %s\n", attempt, maxAttempts, mac);
+        }
+    }
+    return false;
+}
+
 bool meterScanRead(const char* mac, float& tempC, uint8_t& humidity, uint32_t scanSeconds,
                    uint8_t maxAttempts, int* batteryPct) {
     for (uint8_t attempt = 1; attempt <= maxAttempts; attempt++) {
-        if (meterScanOnce(mac, tempC, humidity, scanSeconds, batteryPct)) return true;
+        MeterReading reading;
+        if (meterScanOnce(mac, reading, scanSeconds) && reading.hasTempHumidity) {
+            tempC = reading.tempC;
+            humidity = reading.humidity;
+            if (batteryPct != nullptr) *batteryPct = reading.batteryPct;
+            return true;
+        }
         if (attempt < maxAttempts) {
             Serial.printf("[Meter] retry %u/%u: %s\n", attempt, maxAttempts, mac);
         }

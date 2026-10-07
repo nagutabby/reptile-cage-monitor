@@ -7,15 +7,25 @@ import { setAirConditioner } from "./air-conditioner-control";
 export interface ReadingRecord {
   id: number | string;
   event_id?: string;
-  temp_c: number;
-  humidity: number;
+  temp_c?: number;
+  humidity?: number;
   battery?: number;
   recorded_at: string;
+}
+
+export interface LatestReading {
+  temp_c: number | null;
+  temp_c_recorded_at: string | null;
+  humidity: number | null;
+  humidity_recorded_at: string | null;
+  battery: number | null;
+  battery_recorded_at: string | null;
 }
 
 export interface ApiDependencies {
   listReadings(minutes: number): Promise<ReadingRecord[]>;
   getDeviceState(): Promise<DeviceState>;
+  getLatestReading(): Promise<LatestReading>;
   setAirConditioner(settings: AirConditionerSettings): Promise<SetAirConditionerResult>;
   getPublicConfig(): PublicConfig;
 }
@@ -115,6 +125,7 @@ export function createApi(dependencies: ApiDependencies) {
       return context.json(await dependencies.listReadings(minutes));
     })
     .get("/api/device_state", async (context) => context.json(await dependencies.getDeviceState()))
+    .get("/api/latest_reading", async (context) => context.json(await dependencies.getLatestReading()))
     .post("/control/air-conditioner", validateAirConditionerBody, async (context) => {
       return context.json(await dependencies.setAirConditioner(context.req.valid("json")));
     });
@@ -148,8 +159,8 @@ async function listReadings(minutes: number): Promise<ReadingRecord[]> {
       rows.push({
         id: item.id ?? item.event_id ?? String(item.sk),
         ...(typeof item.event_id === "string" ? { event_id: item.event_id } : {}),
-        temp_c: Number(item.temp_c),
-        humidity: Number(item.humidity),
+        ...(typeof item.temp_c === "number" ? { temp_c: item.temp_c } : {}),
+        ...(typeof item.humidity === "number" ? { humidity: item.humidity } : {}),
         ...(typeof item.battery === "number" ? { battery: item.battery } : {}),
         recorded_at: String(item.recorded_at),
       });
@@ -157,6 +168,24 @@ async function listReadings(minutes: number): Promise<ReadingRecord[]> {
     exclusiveStartKey = result.LastEvaluatedKey;
   } while (exclusiveStartKey);
   return rows;
+}
+
+async function getLatestReading(): Promise<LatestReading> {
+  const result = await ddb.send(new GetCommand({
+    TableName: requireTableName(),
+    Key: { pk: "STATE", sk: "LATEST" },
+  }));
+  const item = result.Item;
+  const num = (value: unknown) => (typeof value === "number" ? value : null);
+  const str = (value: unknown) => (typeof value === "string" ? value : null);
+  return {
+    temp_c: num(item?.temp_c),
+    temp_c_recorded_at: str(item?.temp_c_recorded_at),
+    humidity: num(item?.humidity),
+    humidity_recorded_at: str(item?.humidity_recorded_at),
+    battery: num(item?.battery),
+    battery_recorded_at: str(item?.battery_recorded_at),
+  };
 }
 
 async function getDeviceState(): Promise<DeviceState> {
@@ -176,6 +205,7 @@ async function getDeviceState(): Promise<DeviceState> {
 export const app = createApi({
   listReadings,
   getDeviceState,
+  getLatestReading,
   setAirConditioner,
   getPublicConfig: (): PublicConfig => ({
     region: process.env.AWS_REGION ?? "ap-northeast-1",

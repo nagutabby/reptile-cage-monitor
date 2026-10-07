@@ -4,8 +4,8 @@
 
   export interface Point {
     recorded_at: string;
-    temp_c: number;
-    humidity: number;
+    temp_c?: number;
+    humidity?: number;
   }
 
   interface Props {
@@ -28,7 +28,7 @@
   const fullFormat = new Intl.DateTimeFormat("ja-JP", { timeZone: "Asia/Tokyo", dateStyle: "short", timeStyle: "medium" });
 
   let points = $derived(data
-    .map((row) => ({ x: Date.parse(row.recorded_at), y: row[valueKey] }))
+    .map((row) => ({ x: Date.parse(row.recorded_at), y: row[valueKey] ?? NaN }))
     .filter((p) => Number.isFinite(p.x) && Number.isFinite(p.y)));
 
   onMount(() => {

@@ -12,6 +12,14 @@ function testApi() {
       is_heater_on: true,
       is_heater_on_changed_at: "2026-09-30T00:00:00+00:00",
     })),
+    getLatestReading: vi.fn(async () => ({
+      temp_c: 27.2,
+      temp_c_recorded_at: "2026-09-30T00:00:00+00:00",
+      humidity: 52,
+      humidity_recorded_at: "2026-09-30T00:00:00+00:00",
+      battery: null,
+      battery_recorded_at: null,
+    })),
     setAirConditioner: vi.fn(async (_settings: AirConditionerSettings) => ({
       status: "queued" as const,
       command_id: "command-123",
@@ -45,6 +53,13 @@ describe("Hono API", () => {
     expect(dependencies.listReadings).toHaveBeenCalledWith(360);
     expect((await app.request("/api/readings?minutes=4321")).status).toBe(400);
     expect((await app.request("/api/readings?minutes=1.5")).status).toBe(400);
+  });
+
+  it("returns the latest value of each reading", async () => {
+    const { app } = testApi();
+    const response = await app.request("/api/latest_reading");
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ temp_c: 27.2, battery: null });
   });
 
   it("returns device state", async () => {

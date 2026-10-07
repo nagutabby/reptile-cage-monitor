@@ -15,10 +15,8 @@ uint32_t sequence = 0;
 uint32_t nextReadMs = 0;
 
 void sendReading() {
-    float tempC;
-    uint8_t humidity;
-    int battery = -1;
-    if (!SwitchBotBLE::meterScanRead(METER_MAC, tempC, humidity, 5, 3, &battery)) {
+    SwitchBotBLE::MeterReading reading;
+    if (!SwitchBotBLE::meterScanReadPartial(METER_MAC, reading)) {
         Serial.println("[Meter] scan failed");
         return;
     }
@@ -30,12 +28,15 @@ void sendReading() {
     JsonDocument doc;
     doc["event_id"] = eventId;
     doc["observed_at"] = timestamp;
-    doc["temp_c"] = tempC;
-    doc["humidity"] = humidity;
-    if (battery >= 0) doc["battery"] = battery;
+    if (reading.hasTempHumidity) {
+        doc["temp_c"] = reading.tempC;
+        doc["humidity"] = reading.humidity;
+    }
+    if (reading.batteryPct >= 0) doc["battery"] = reading.batteryPct;
     char payload[256];
     serializeJson(doc, payload, sizeof(payload));
-    Serial.printf("[Meter] %.1f C %u %% battery %d %%\n", tempC, humidity, battery);
+    Serial.printf("[Meter] %.1f C %u %% battery %d %%\n", reading.tempC, reading.humidity,
+                  reading.batteryPct);
     Serial.println(mqtt.publish(TOPIC, payload, true) ? "[MQTT] published" : "[MQTT] publish failed");
 }
 } // namespace

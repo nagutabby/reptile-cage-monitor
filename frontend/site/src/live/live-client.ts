@@ -20,8 +20,8 @@ interface SignedUrlConfig extends LiveClientConfig {
 
 interface TelemetryPayload {
   observed_at: string;
-  temp_c: number;
-  humidity: number;
+  temp_c?: number;
+  humidity?: number;
   battery?: number;
 }
 
@@ -265,8 +265,8 @@ export async function start(config: LiveClientConfig): Promise<void> {
             if (typeof data.observed_at !== "string") return;
             const telemetry: TelemetryPayload = {
               observed_at: data.observed_at,
-              temp_c: Number(data.temp_c),
-              humidity: Number(data.humidity),
+              ...(typeof data.temp_c === "number" ? { temp_c: data.temp_c } : {}),
+              ...(typeof data.humidity === "number" ? { humidity: data.humidity } : {}),
               ...(typeof data.battery === "number" ? { battery: data.battery } : {}),
             };
             const age = Date.now() - Date.parse(telemetry.observed_at);

@@ -2,6 +2,7 @@ import { GetParameterCommand, SSMClient } from "@aws-sdk/client-ssm";
 import {
   GetCommand,
   PutCommand,
+  UpdateCommand,
 } from "@aws-sdk/lib-dynamodb";
 import { ConditionalCheckFailedException } from "@aws-sdk/client-dynamodb";
 import type { IoTEvent } from "aws-lambda";
@@ -32,8 +33,8 @@ export function normalizeRecordedAt(value: string): string | null {
 export interface Telemetry {
   event_id: string;
   observed_at: string;
-  temp_c: number;
-  humidity: number;
+  temp_c?: number;
+  humidity?: number;
   battery?: number;
 }
 
@@ -46,15 +47,16 @@ export function parseTelemetry(value: unknown): (Telemetry & { recorded_at: stri
     item.event_id.length < 1 || item.event_id.length > 80 ||
     !/^[A-Za-z0-9:_-]+$/.test(item.event_id) ||
     recordedAt === null ||
-    typeof item.temp_c !== "number" || !Number.isFinite(item.temp_c) || item.temp_c < -20 || item.temp_c > 60 ||
-    typeof item.humidity !== "number" || !Number.isFinite(item.humidity) || item.humidity < 0 || item.humidity > 100 ||
-    (item.battery !== undefined && (!Number.isInteger(item.battery) || (item.battery as number) < 0 || (item.battery as number) > 100))
+    (item.temp_c !== undefined && (typeof item.temp_c !== "number" || !Number.isFinite(item.temp_c) || item.temp_c < -20 || item.temp_c > 60)) ||
+    (item.humidity !== undefined && (typeof item.humidity !== "number" || !Number.isFinite(item.humidity) || item.humidity < 0 || item.humidity > 100)) ||
+    (item.battery !== undefined && (!Number.isInteger(item.battery) || (item.battery as number) < 0 || (item.battery as number) > 100)) ||
+    (item.temp_c === undefined && item.humidity === undefined && item.battery === undefined)
   ) return null;
   return {
     event_id: item.event_id,
     observed_at: item.observed_at as string,
-    temp_c: item.temp_c,
-    humidity: item.humidity,
+    ...(item.temp_c === undefined ? {} : { temp_c: item.temp_c as number }),
+    ...(item.humidity === undefined ? {} : { humidity: item.humidity as number }),
     ...(item.battery === undefined ? {} : { battery: item.battery as number }),
     recorded_at: recordedAt,
   };
@@ -99,8 +101,9 @@ interface AlertState {
 }
 
 export function isAbnormal(telemetry: Pick<Telemetry, "temp_c" | "humidity">): boolean {
-  return telemetry.temp_c < TEMP_MIN_C || telemetry.temp_c > TEMP_MAX_C ||
-    telemetry.humidity < HUMIDITY_MIN || telemetry.humidity > HUMIDITY_MAX;
+  const { temp_c, humidity } = telemetry;
+  return (temp_c !== undefined && (temp_c < TEMP_MIN_C || temp_c > TEMP_MAX_C)) ||
+    (humidity !== undefined && (humidity < HUMIDITY_MIN || humidity > HUMIDITY_MAX));
 }
 
 export function shouldNotify(
@@ -118,7 +121,7 @@ export function shouldNotify(
 function alertMessage(telemetry: Telemetry): string {
   return [
     "[異常値検知] ヒョウモントカゲモドキ ケージ",
-    `温度: ${telemetry.temp_c.toFixed(1)}C / 湿度: ${telemetry.humidity.toFixed(0)}%`,
+    `温度: ${telemetry.temp_c?.toFixed(1) ?? "--"}C / 湿度: ${telemetry.humidity?.toFixed(0) ?? "--"}%`,
     `許容範囲: 温度${TEMP_MIN_C}-${TEMP_MAX_C}C, 湿度${HUMIDITY_MIN}-${HUMIDITY_MAX}%`,
   ].join("\n");
 }
@@ -199,8 +202,8 @@ async function saveTelemetry(value: unknown): Promise<void> {
         ...key,
         id: telemetry.event_id,
         event_id: telemetry.event_id,
-        temp_c: telemetry.temp_c,
-        humidity: telemetry.humidity,
+        ...(telemetry.temp_c === undefined ? {} : { temp_c: telemetry.temp_c }),
+        ...(telemetry.humidity === undefined ? {} : { humidity: telemetry.humidity }),
         ...(telemetry.battery === undefined ? {} : { battery: telemetry.battery }),
         recorded_at: `${telemetry.recorded_at.slice(0, 19)}+00:00`,
       },
@@ -210,7 +213,35 @@ async function saveTelemetry(value: unknown): Promise<void> {
   } catch (error) {
     if (!(error instanceof ConditionalCheckFailedException)) throw error;
   }
-  await evaluateAndNotify(telemetry);
+  await saveLatest(telemetry);
+  if (telemetry.temp_c !== undefined || telemetry.humidity !== undefined) await evaluateAndNotify(telemetry);
+}
+
+// 項目ごとの最新値を 1 項目に保持し、API が履歴を遡らずに GetItem 1 回で返せるようにする
+async function saveLatest(telemetry: Telemetry & { recorded_at: string }): Promise<void> {
+  const recordedAt = `${telemetry.recorded_at.slice(0, 19)}+00:00`;
+  const sets = ["#recorded = :recorded"];
+  const names: Record<string, string> = { "#recorded": "recorded_at" };
+  const values: Record<string, unknown> = { ":recorded": recordedAt };
+  for (const field of ["temp_c", "humidity", "battery"] as const) {
+    if (telemetry[field] === undefined) continue;
+    sets.push(`#${field} = :${field}`, `#${field}_at = :recorded`);
+    names[`#${field}`] = field;
+    names[`#${field}_at`] = `${field}_recorded_at`;
+    values[`:${field}`] = telemetry[field];
+  }
+  try {
+    await ddb.send(new UpdateCommand({
+      TableName: requireTableName(),
+      Key: { pk: "STATE", sk: "LATEST" },
+      UpdateExpression: `SET ${sets.join(", ")}`,
+      ConditionExpression: "attribute_not_exists(#recorded) OR #recorded <= :recorded",
+      ExpressionAttributeNames: names,
+      ExpressionAttributeValues: values,
+    }));
+  } catch (error) {
+    if (!(error instanceof ConditionalCheckFailedException)) throw error;
+  }
 }
 
 async function saveState(value: unknown): Promise<void> {

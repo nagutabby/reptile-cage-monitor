@@ -56,7 +56,20 @@ bool plugReadState(const char* mac, bool& isOn, uint32_t timeoutMs = 3000,
 // from `mac`. Returns true and fills tempC/humidity on success. Retries the
 // whole scan up to `maxAttempts` times if the device isn't seen.
 // `batteryPct` (optional) receives 0-100, or -1 if the advertisement carries no service data.
+// Returns false when temperature/humidity were not seen, even if the battery was.
 bool meterScanRead(const char* mac, float& tempC, uint8_t& humidity, uint32_t scanSeconds = 5,
                     uint8_t maxAttempts = 3, int* batteryPct = nullptr);
+
+// Fields that were not in the advertisement keep their defaults.
+struct MeterReading {
+    bool hasTempHumidity = false;
+    float tempC = 0;
+    uint8_t humidity = 0;
+    int batteryPct = -1;  // 0-100, or -1 if the advertisement carries no service data
+};
+// Like meterScanRead, but returns true when at least one of temperature/humidity or
+// battery was seen, so a partial advertisement is not discarded.
+bool meterScanReadPartial(const char* mac, MeterReading& out, uint32_t scanSeconds = 5,
+                          uint8_t maxAttempts = 3);
 
 } // namespace SwitchBotBLE

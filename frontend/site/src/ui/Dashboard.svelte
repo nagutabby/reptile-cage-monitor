@@ -16,6 +16,8 @@
   type PublicConfig = InferResponseType<typeof apiClient.api.config.$get, 200>;
   type Reading = InferResponseType<typeof apiClient.api.readings.$get, 200>[number] & Point;
   type DeviceState = InferResponseType<typeof apiClient.api.device_state.$get, 200>;
+  type LatestReading = InferResponseType<typeof apiClient.api.latest_reading.$get, 200>;
+  type Latest = { temp_c?: number; humidity?: number; battery?: number; observed_at: string };
 
   const rangeMin = 30;
   const rangeMax = 4320;
@@ -40,7 +42,7 @@
   let historyWindow = $state({ start: 0, end: 0 });
   let historyRequestId = 0;
   let rangeTimer: ReturnType<typeof setTimeout> | undefined;
-  let latestTelemetry = $state<{ temp_c: number; humidity: number; battery?: number; observed_at: string } | null>(null);
+  let latestTelemetry = $state<Latest | null>(null);
   let telemetryIsLive = $state(false);
   let message = $state("接続中…");
   let loadingHistory = $state(false);
@@ -177,15 +179,6 @@
       if (requestId !== historyRequestId) return;
       readings = rows;
       historyWindow = { start: requestedAt - requestedMinutes * 60_000, end: requestedAt };
-      if (!telemetryIsLive && readings.length) {
-        const latest = readings.at(-1)!;
-        latestTelemetry = {
-          temp_c: latest.temp_c,
-          humidity: latest.humidity,
-          ...(latest.battery === undefined ? {} : { battery: latest.battery }),
-          observed_at: latest.recorded_at,
-        };
-      }
       message = telemetryIsLive
         ? ""
         : latestTelemetry
@@ -195,6 +188,28 @@
       message = error instanceof Error ? `履歴を読み込めません: ${error.message}` : "履歴を読み込めません";
     } finally {
       if (requestId === historyRequestId) loadingHistory = false;
+    }
+  }
+
+  // 項目ごとに最後に取得できた値を使う。ライブ受信済みの項目は上書きしない
+  async function loadLatest() {
+    try {
+      const latest: LatestReading = await getJson(apiClient.api.latest_reading.$get({}, { init: { cache: "no-store" } }));
+      if (telemetryIsLive) return;
+      const observedAt = [latest.temp_c_recorded_at, latest.humidity_recorded_at, latest.battery_recorded_at]
+        .filter((value): value is string => value !== null)
+        .sort()
+        .at(-1);
+      if (!observedAt) return;
+      latestTelemetry = {
+        ...(latest.temp_c === null ? {} : { temp_c: latest.temp_c }),
+        ...(latest.humidity === null ? {} : { humidity: latest.humidity }),
+        ...(latest.battery === null ? {} : { battery: latest.battery }),
+        observed_at: observedAt,
+      };
+      message = "ライブ更新を待っています。保存済みの最新値を表示中です。";
+    } catch (error) {
+      console.warn("Could not load latest reading", error);
     }
   }
 
@@ -226,7 +241,8 @@
     let stateTimer: ReturnType<typeof setInterval>;
     let historyTimer: ReturnType<typeof setInterval>;
     const onTelemetry = (event: Event) => {
-      latestTelemetry = (event as CustomEvent<{ temp_c: number; humidity: number; battery?: number; observed_at: string }>).detail;
+      const detail = (event as CustomEvent<Latest>).detail;
+      latestTelemetry = { ...latestTelemetry, ...detail };
       telemetryIsLive = true;
       message = "";
     };
@@ -238,10 +254,13 @@
         useSavedLogin();
         await finishLogin();
         if (stopped) return;
-        await Promise.all([loadHistory(), loadState()]);
+        await Promise.all([loadHistory(), loadState(), loadLatest()]);
         await startLive();
         historyTimer = setInterval(() => void loadHistory(), 60_000);
-        stateTimer = setInterval(() => void loadState(), 60_000);
+        stateTimer = setInterval(() => {
+          void loadState();
+          void loadLatest();
+        }, 60_000);
         if (!latestTelemetry) message = message || "AWS IoT Coreからのライブ値を待っています…";
       } catch (error) {
         message = error instanceof Error ? error.message : "設定を読み込めません";
@@ -290,8 +309,8 @@
       </p>
     </div>
     <div class="grid grid-cols-2 gap-3 lg:grid-cols-5">
-      <article class="stat rounded-box border border-base-300 bg-base-200"><div class="stat-title">最新温度</div><div class="stat-value text-warning" id="temperature">{latestTelemetry ? `${latestTelemetry.temp_c.toFixed(1)} ℃` : "-- ℃"}</div></article>
-      <article class="stat rounded-box border border-base-300 bg-base-200"><div class="stat-title">最新湿度</div><div class="stat-value text-info" id="humidity">{latestTelemetry ? `${latestTelemetry.humidity.toFixed(0)} %` : "-- %"}</div></article>
+      <article class="stat rounded-box border border-base-300 bg-base-200"><div class="stat-title">最新温度</div><div class="stat-value text-warning" id="temperature">{latestTelemetry?.temp_c === undefined ? "-- ℃" : `${latestTelemetry.temp_c.toFixed(1)} ℃`}</div></article>
+      <article class="stat rounded-box border border-base-300 bg-base-200"><div class="stat-title">最新湿度</div><div class="stat-value text-info" id="humidity">{latestTelemetry?.humidity === undefined ? "-- %" : `${latestTelemetry.humidity.toFixed(0)} %`}</div></article>
       <article class="stat rounded-box border border-base-300 bg-base-200"><div class="stat-title">バッテリー残量</div><div class="stat-value" id="battery">{latestTelemetry?.battery === undefined ? "-- %" : `${latestTelemetry.battery} %`}</div></article>
       <article class="stat rounded-box border border-base-300 bg-base-200"><div class="stat-title">ライト</div><div class="stat-value" id="light">不明</div></article>
       <article class="stat rounded-box border border-base-300 bg-base-200"><div class="stat-title">パネルヒーター</div><div class="stat-value" id="heater">不明</div></article>
