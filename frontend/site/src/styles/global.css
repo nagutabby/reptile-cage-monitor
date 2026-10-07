@@ -1,4 +1,9 @@
 @import "tailwindcss";
+@import "./noto-sans-jp.css";
 @plugin "daisyui" {
   themes: dracula --default;
+}
+
+@theme {
+  --font-sans: "Noto Sans JP", ui-sans-serif, system-ui, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji";
 }

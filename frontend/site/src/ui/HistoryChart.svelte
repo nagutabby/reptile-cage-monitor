@@ -32,6 +32,9 @@
     .filter((p) => Number.isFinite(p.x) && Number.isFinite(p.y)));
 
   onMount(() => {
+    Chart.defaults.font.family = getComputedStyle(document.body).fontFamily;
+    // Webフォントの読み込み完了前に描画された目盛りを再描画する
+    void document.fonts.ready.then(() => chart?.update());
     chart = new Chart(canvas, {
       type: "line",
       data: { datasets: [{ data: [], borderColor: color, backgroundColor: color, borderWidth: 2, pointRadius: 0, pointHoverRadius: 4, tension: 0.2 }] },
