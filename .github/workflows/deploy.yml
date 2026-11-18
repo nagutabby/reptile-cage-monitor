@@ -47,6 +47,9 @@ jobs:
           pnpm run build
           pnpm test
 
+      - name: Integration test against AWS Emulator
+        run: pnpm run test:integration
+
   deploy:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     needs: validate

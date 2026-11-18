@@ -7,7 +7,8 @@
     "build": "tsc --noEmit",
     "build:site": "pnpm --dir frontend/site run build",
     "synth": "pnpm run build && pnpm run build:site && cdk synth --strict",
-    "test": "vitest run"
+    "test": "vitest run",
+    "test:integration": "bash scripts/integration-test.sh"
   },
   "dependencies": {
     "@aws-sdk/client-cognito-identity": "^3.1146.0",
