@@ -1,6 +1,6 @@
-import { CreateTableCommand, DynamoDBClient, waitUntilTableExists } from "@aws-sdk/client-dynamodb";
 import { GetCommand, QueryCommand } from "@aws-sdk/lib-dynamodb";
 import { beforeAll, describe, expect, it } from "vitest";
+import { createMonitorTable } from "./helpers";
 
 const TABLE_NAME = "integration-monitor-data";
 
@@ -15,21 +15,7 @@ beforeAll(async () => {
   ingest = await import("../../lambda/ingest");
   ({ ddb } = await import("../../lambda/database"));
 
-  const admin = new DynamoDBClient({});
-  await admin.send(new CreateTableCommand({
-    TableName: TABLE_NAME,
-    KeySchema: [
-      { AttributeName: "pk", KeyType: "HASH" },
-      { AttributeName: "sk", KeyType: "RANGE" },
-    ],
-    AttributeDefinitions: [
-      { AttributeName: "pk", AttributeType: "S" },
-      { AttributeName: "sk", AttributeType: "S" },
-    ],
-    BillingMode: "PAY_PER_REQUEST",
-  }));
-  // CreateTable 直後は CREATING のため、ACTIVE になるまで待つ
-  await waitUntilTableExists({ client: admin, maxWaitTime: 30 }, { TableName: TABLE_NAME });
+  await createMonitorTable(TABLE_NAME);
 });
 
 const reading = (eventId: string, observedAt: string, tempC: number, humidity: number) => ({
